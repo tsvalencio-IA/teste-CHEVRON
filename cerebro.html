@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CÉREBRO - INJETOR DE CONHECIMENTO V2</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { background: #1e293b; padding: 40px; border-radius: 12px; width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+        h1 { color: #facc15; margin-bottom: 10px; font-size: 24px; }
+        p { color: #94a3b8; font-size: 14px; margin-bottom: 30px; }
+        
+        .upload-area { border: 2px dashed #475569; padding: 30px; border-radius: 8px; cursor: pointer; transition: 0.3s; margin-bottom: 20px; }
+        .upload-area:hover { border-color: #facc15; background: #334155; }
+        .icon-upload { font-size: 40px; color: #64748b; margin-bottom: 10px; }
+        
+        button { width: 100%; padding: 15px; background: #2563eb; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+        button:hover:not(:disabled) { background: #1d4ed8; }
+        
+        #status { margin-top: 15px; font-size: 13px; font-weight: bold; }
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+        
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1><i class='bx bxs-microchip'></i> INJETOR MESTRE</h1>
+        <p>Carregue o arquivo DS_FINAL_100_PORCENTO.json para atualizar o Cérebro.</p>
+
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <div class="icon-upload"><i class='bx bxs-cloud-upload'></i></div>
+            <span id="fileName">Clique para escolher o arquivo</span>
+        </div>
+        <input type="file" id="fileInput" accept=".json" onchange="handleFile(this)">
+
+        <button id="btnInject" onclick="injetar()" disabled>INJETAR CONHECIMENTO</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // 1. CONFIGURAÇÃO FIREBASE
+        const firebaseConfig = {
+            apiKey: "AIzaSyB5JpYm8l0AlF5ZG3HtkyFZgmrpsUrDhv0",
+            authDomain: "dashboard-oficina-pro.firebaseapp.com",
+            databaseURL: "https://dashboard-oficina-pro-default-rtdb.firebaseio.com",
+            projectId: "dashboard-oficina-pro",
+            storageBucket: "dashboard-oficina-pro.appspot.com",
+            messagingSenderId: "736157192887",
+            appId: "1:736157192887:web:c23d3daade848a33d67332"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let jsonData = null;
+
+        function handleFile(input) {
+            const file = input.files[0];
+            if (file) {
+                document.getElementById('fileName').innerText = file.name;
+                const reader = new FileReader();
+                reader.onload = e => {
+                    try {
+                        const raw = JSON.parse(e.target.result);
+                        // TRATAMENTO INTELIGENTE: Pega a lista onde quer que ela esteja
+                        if (raw.pecas && Array.isArray(raw.pecas)) {
+                            jsonData = raw.pecas; // Pega a lista dentro de "pecas"
+                        } else if (Array.isArray(raw)) {
+                            jsonData = raw; // Já é uma lista
+                        } else {
+                            jsonData = Object.values(raw); // É um objeto, converte pra lista
+                        }
+                        
+                        document.getElementById('status').innerHTML = `<span class="success">Arquivo Válido! ${jsonData.length} peças encontradas.</span>`;
+                        document.getElementById('btnInject').disabled = false;
+                        document.getElementById('btnInject').style.background = "#facc15";
+                        document.getElementById('btnInject').style.color = "#000";
+                    } catch (err) {
+                        document.getElementById('status').innerHTML = `<span class="error">Erro no JSON: ${err.message}</span>`;
+                    }
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        function injetar() {
+            if (!jsonData) return;
+            const btn = document.getElementById('btnInject');
+            btn.disabled = true;
+            btn.innerText = "SOBRESCREVENDO CÉREBRO...";
+            
+            // O COMANDO MÁGICO: .set()
+            // Isso deleta o nó 'catalogs' antigo e coloca a nova lista limpa.
+            db.ref('catalogs').set(jsonData)
+                .then(() => {
+                    document.getElementById('status').innerHTML = `<span class="success">SUCESSO TOTAL! ${jsonData.length} peças injetadas.</span>`;
+                    btn.innerText = "CONCLUÍDO";
+                    alert("Cérebro Atualizado! Pode abrir o thIAguinho.");
+                })
+                .catch((error) => {
+                    document.getElementById('status').innerHTML = `<span class="error">Erro no Upload: ${error.message}</span>`;
+                    btn.innerText = "TENTAR NOVAMENTE";
+                    btn.disabled = false;
+                });
+        }
+    </script>
+</body>
+</html>

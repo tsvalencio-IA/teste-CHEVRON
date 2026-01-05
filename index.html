@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard Oficina - Gestão de Pátio</title>
+  
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d6efd">
+  <link rel="apple-touch-icon" href="images/icons/icon-192x192.png">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-gray-100">
+
+  <div id="userScreen" class="flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm text-center">
+      <h1 class="text-3xl font-bold text-gray-800 mb-2">CHEVRON</h1>
+      <p class="text-xl font-semibold text-blue-800">Bosch Car Service</p>
+      <form id="loginForm" class="mt-8 text-left">
+        <div class="mb-4">
+          <label for="userSelect" class="block text-sm font-medium text-gray-700 mb-1">Usuário</label>
+          <select id="userSelect" required class="p-2 border rounded w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+            <option value="">Selecione seu usuário...</option>
+          </select>
+        </div>
+        <div class="mb-6">
+          <label for="passwordInput" class="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+          <input type="password" id="passwordInput" required class="p-2 border rounded w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        </div>
+        <button type="submit" class="w-full btn bg-blue-600 hover:bg-blue-700 text-white py-2 text-base">
+          Entrar
+        </button>
+        <p id="loginError" class="text-red-500 text-sm mt-4 text-center h-4"></p>
+      </form>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
+    <header class="bg-white shadow-md sticky top-0 z-40">
+      <div id="attention-panel-container">
+        <div id="attention-panel" class="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2"></div>
+      </div>
+      <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center gap-4">
+        <div class="flex items-center gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-gray-800">CHEVRON</h1>
+                <p class="text-sm font-semibold text-blue-800 -mt-1">Bosch Car Service</p>
+            </div>
+            <div id="alert-led" class="hidden"></div>
+            <button id="toggle-panel-btn" class="text-gray-400 hover:text-blue-800 p-1" title="Mostrar/Ocultar Painel de Alertas">
+                <i class='bx bxs-chevron-up text-2xl'></i>
+            </button>
+        </div>
+        
+        <div class="flex-grow max-w-md relative search-container">
+            <input type="search" id="globalSearchInput" placeholder="Buscar por Placa..." class="w-full p-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div id="globalSearchResults" class="absolute top-full left-0 right-0 bg-white border border-gray-300 rounded-b-md shadow-lg z-50 hidden max-h-60 overflow-y-auto">
+                </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+          <button id="addOSBtn" class="btn bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 flex items-center gap-2">
+            <i class='bx bx-plus-circle'></i><span class="hidden sm:inline">Nova O.S.</span>
+          </button>
+          
+          <button id="adminBtn" class="btn bg-gray-700 hover:bg-gray-800 text-white px-3 py-2 hidden" title="Gerenciar Contas de Mídia">
+              <i class='bx bxs-cog text-xl'></i>
+          </button>
+           <button id="reportsBtn" class="btn bg-green-600 hover:bg-green-700 text-white px-3 py-2 hidden" title="Relatórios">
+              <i class='bx bxs-file-pdf text-xl'></i>
+          </button>
+          
+          <button id="arBtn" class="btn bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 hidden" title="Consultor thIAguinho AR">
+              <i class='bx bx-cube-alt text-xl'></i><span class="hidden sm:inline ml-1">Consultor AR</span>
+          </button>
+          
+          <div class="text-right">
+            <p id="currentUserName" class="font-semibold text-gray-700"></p>
+            <button id="logoutButton" class="text-sm text-red-500 hover:text-red-700">Sair</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="container mx-auto p-4 sm:p-6 lg:p-8">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-6" id="kanbanBoard"></div>
+    </main>
+  </div>
+
+  <div id="osModal" class="modal fixed inset-0 z-50 hidden items-center justify-center p-4">
+    <div class="modal-content w-full max-w-lg">
+      <div class="modal-header">
+        <h2 id="osModalTitle" class="text-2xl font-bold text-gray-800">Nova Ordem de Serviço</h2>
+      </div>
+      <div class="modal-body">
+        <form id="osForm" class="space-y-4">
+          <input type="hidden" id="osId">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="form-group">
+              <label for="osPlaca" class="block text-sm font-medium text-gray-700 mb-1">Placa</label>
+              <input id="osPlaca" type="text" placeholder="ABC1234" required class="p-2 border rounded w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div class="form-group">
+              <label for="osModelo" class="block text-sm font-medium text-gray-700 mb-1">Modelo do Veículo</label>
+              <input id="osModelo" type="text" placeholder="Ex: Gol, Corolla" required class="p-2 border rounded w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div class="form-group sm:col-span-2">
+              <label for="osCliente" class="block text-sm font-medium text-gray-700 mb-1">Nome do Cliente</label>
+              <input id="osCliente" type="text" placeholder="Nome completo" required class="p-2 border rounded w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div class="form-group">
+              <label for="osTelefone" class="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+              <input id="osTelefone" type="tel" placeholder="(11) 99999-9999" class="p-2 border rounded w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div class="form-group">
+              <label for="osKm" class="block text-sm font-medium text-gray-700 mb-1">KM do Veículo</label>
+              <input id="osKm" type="number" placeholder="Ex: 50000" class="p-2 border rounded w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div class="form-group sm:col-span-2">
+              <label for="osResponsavel" class="block text-sm font-medium text-gray-700 mb-1">Responsável pelo Atendimento</label>
+              <select id="osResponsavel" required class="p-2 border rounded w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">Selecione um responsável...</option>
+              </select>
+            </div>
+            <div class="form-group sm:col-span-2">
+              <label for="osObservacoes" class="block text-sm font-medium text-gray-700 mb-1">Observações Iniciais / Queixa do Cliente</label>
+              <textarea id="osObservacoes" placeholder="Ex: Barulho no motor, vazamento de óleo..." rows="3" class="p-2 border rounded w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
+            </div>
+            <div class="form-group sm:col-span-2">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Nível de Urgência do Orçamento</label>
+                <div class="flex items-center space-x-6">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="radio" name="osPrioridade" value="verde" class="form-radio h-5 w-5 text-green-600" checked>
+                        <span class="text-sm font-medium text-gray-700">Verde (Normal)</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="radio" name="osPrioridade" value="amarelo" class="form-radio h-5 w-5 text-yellow-500">
+                        <span class="text-sm font-medium text-gray-700">Amarelo (Urgente)</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="radio" name="osPrioridade" value="vermelho" class="form-radio h-5 w-5 text-red-600">
+                        <span class="text-sm font-medium text-gray-700">Vermelho (Imediato)</span>
+                    </label>
+                </div>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <span class="text-xs text-gray-500 mr-auto">Desenvolvido com 🤖 - por thIAguinho Soluções</span>
+        <button type="button" class="btn-close-modal btn bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2">Cancelar</button>
+        <button type="submit" form="osForm" class="btn bg-blue-600 hover:bg-blue-700 text-white px-4 py-2">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="detailsModal" class="modal fixed inset-0 z-50 hidden items-center justify-center p-4">
+    <div class="modal-content w-full max-w-6xl">
+      <div class="modal-header">
+        <div class="flex justify-between items-start">
+          <h2 class="text-2xl font-bold text-gray-800">Detalhes da Ordem de Serviço</h2>
+          <button class="btn-close-modal text-3xl text-gray-400 hover:text-gray-600">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="os-details-container">
+          <div class="os-header">
+             <div id="detailsHeader" class="flex justify-between items-start flex-wrap"></div>
+            <div id="detailsObservacoes" class="hidden mt-4 pt-4 border-t border-gray-200"></div>
+          </div>
+          <div class="os-content">
+            <div class="space-y-6">
+              <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="section-title">Galeria de Mídia</h3>
+                <div id="thumbnail-grid" class="grid grid-cols-4 sm:grid-cols-6 gap-2 mt-4"></div>
+              </div>
+              <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="section-title">Histórico da O.S.</h3>
+                <div id="timelineContainer" class="timeline mt-4 space-y-6"></div>
+              </div>
+            </div>
+            <div class="os-actions-section space-y-6">
+              <div class="bg-white rounded-lg shadow p-4">
+                  <h3 class="section-title">Adicionar Atualização</h3>
+                  <form id="logForm" class="space-y-4">
+                    <input type="hidden" id="logOsId">
+                    <textarea id="logDescricao" placeholder="Descrição do serviço, peça, observação..." rows="3" required class="p-2 border rounded w-full"></textarea>
+                    <div class="flex gap-4">
+                      <input id="logPecas" type="text" placeholder="Peças (opcional)" class="p-2 border rounded w-1/2">
+                      <input id="logValor" type="number" step="0.01" placeholder="Valor R$ (opcional)" class="p-2 border rounded w-1/2">
+                    </div>
+                    <div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" id="openCameraBtn" class="w-full btn bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 flex items-center justify-center gap-2 cursor-pointer">
+                                <i class='bx bxs-camera'></i> Câmera
+                            </button>
+                            <button type="button" id="openGalleryBtn" class="w-full btn bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 flex items-center justify-center gap-2 cursor-pointer">
+                                <i class='bx bxs-image-add'></i> Galeria
+                            </button>
+                        </div>
+                      <input id="media-input" type="file" class="hidden" multiple accept="image/*,video/*,application/pdf">
+                      <p id="fileName" class="text-sm text-gray-500 mt-1 truncate"></p>
+                    </div>
+                    <button type="submit" class="w-full btn bg-green-600 hover:bg-green-700 text-white px-4 py-2 flex items-center justify-center gap-2">
+                      <i class='bx bx-message-square-add'></i> Adicionar ao Histórico
+                    </button>
+                  </form>
+                  <div id="post-log-actions" class="hidden mt-4 border-t pt-4 space-y-2">
+                    <h4 class="font-semibold text-gray-700 text-center">Registro Salvo! Mover O.S.?</h4>
+                    <button id="btn-move-next" class="w-full btn bg-blue-500 hover:bg-blue-600 text-white">Avançar Status</button>
+                    <button id="btn-move-prev" class="w-full btn bg-yellow-500 hover:bg-yellow-600 text-white">Retroceder Status</button>
+                    <button id="btn-stay" class="w-full btn bg-gray-400 hover:bg-gray-500 text-white">Apenas Atualizar</button>
+                  </div>
+              </div>
+              <div class="bg-white rounded-lg shadow p-4">
+                  <form id="kmUpdateForm">
+                    <h4 class="font-semibold text-gray-700 mb-2">Atualizar KM</h4>
+                    <div class="flex gap-2">
+                        <input id="updateKmInput" type="number" placeholder="Nova KM" class="p-2 border rounded w-full">
+                        <button type="submit" class="btn bg-blue-500 hover:bg-blue-600 text-white px-3" title="Salvar KM"><i class='bx bx-save'></i></button>
+                    </div>
+                  </form>
+              </div>
+              <div class="bg-white rounded-lg shadow p-4">
+                  <button id="exportOsBtn" class="w-full btn bg-gray-700 hover:bg-gray-800 text-white">
+                    <i class='bx bx-printer'></i> Exportar / Imprimir O.S.
+                  </button>
+              </div>
+              <div class="bg-white rounded-lg shadow p-4">
+                  <button id="deleteOsBtn" class="w-full btn bg-red-600 hover:bg-red-700 text-white hidden">
+                    <i class='bx bx-trash'></i> Excluir O.S.
+                  </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="lightbox" class="modal fixed inset-0 z-[100] hidden items-center justify-center p-4">
+    <div class="absolute inset-0" id="lightbox-close-bg"></div>
+    <div class="relative bg-black bg-opacity-50 p-4 rounded-lg max-w-4xl w-full">
+        <div id="lightbox-content" class="flex items-center justify-center min-h-[300px]"></div>
+        <button id="lightbox-close" class="absolute -top-2 -right-2 bg-white text-black rounded-full h-8 w-8 flex items-center justify-center">&times;</button>
+        <button id="lightbox-prev" class="absolute left-4 top-1/2 -translate-y-1/2 bg-white/50 hover:bg-white text-black p-2 rounded-full"><i class='bx bx-chevron-left text-2xl'></i></button>
+        <button id="lightbox-next" class="absolute right-4 top-1/2 -translate-y-1/2 bg-white/50 hover:bg-white text-black p-2 rounded-full"><i class='bx bx-chevron-right text-2xl'></i></button>
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-4">
+            <a id="lightbox-download" href="#" download class="bg-blue-600 text-white p-2 rounded-full"><i class='bx bxs-download'></i></a>
+            <button id="lightbox-copy" class="bg-blue-600 text-white p-2 rounded-full"><i class='bx bx-copy'></i></button>
+        </div>
+    </div>
+  </div>
+
+  <div id="confirmDeleteModal" class="modal fixed inset-0 z-[101] hidden items-center justify-center p-4">
+    <div class="modal-content w-full max-w-md">
+        <div class="modal-header">
+            <h2 class="text-xl font-bold text-red-600 flex items-center gap-2"><i class='bx bxs-error-circle'></i>Confirmar Exclusão</h2>
+        </div>
+        <div class="modal-body">
+            <p id="confirmDeleteText" class="text-gray-700"></p>
+        </div>
+        <div class="modal-footer">
+            <button id="cancelDeleteBtn" class="btn bg-gray-200 hover:bg-gray-300 text-gray-800">Cancelar</button>
+            <button id="confirmDeleteBtn" class="btn bg-red-600 hover:bg-red-700 text-white">Sim, Excluir</button>
+        </div>
+    </div>
+  </div>
+
+  <div id="confirmDeleteLogModal" class="modal fixed inset-0 z-[101] hidden items-center justify-center p-4">
+    <div class="modal-content w-full max-w-md">
+        <div class="modal-header">
+            <h2 class="text-xl font-bold text-red-600 flex items-center gap-2"><i class='bx bxs-error-circle'></i>Confirmar Exclusão de Atualização</h2>
+        </div>
+        <div class="modal-body">
+            <p id="confirmDeleteLogText" class="text-gray-700"></p>
+        </div>
+        <div class="modal-footer">
+            <button id="cancelDeleteLogBtn" class="btn bg-gray-200 hover:bg-gray-300 text-gray-800">Cancelar</button>
+            <button id="confirmDeleteLogBtn" class="btn bg-red-600 hover:bg-red-700 text-white">Sim, Excluir</button>
+        </div>
+    </div>
+  </div>
+
+  <div id="confirmDeleteMediaModal" class="modal fixed inset-0 z-[101] hidden items-center justify-center p-4">
+    <div class="modal-content w-full max-w-md">
+        <div class="modal-header">
+            <h2 class="text-xl font-bold text-red-600 flex items-center gap-2"><i class='bx bxs-error-circle'></i>Confirmar Exclusão de Mídia</h2>
+        </div>
+        <div class="modal-body">
+            <p id="confirmDeleteMediaText" class="text-gray-700"></p>
+        </div>
+        <div class="modal-footer">
+            <button id="cancelDeleteMediaBtn" class="btn bg-gray-200 hover:bg-gray-300 text-gray-800">Cancelar</button>
+            <button id="confirmDeleteMediaBtn" class="btn bg-red-600 hover:bg-red-700 text-white">Sim, Excluir</button>
+        </div>
+    </div>
+  </div>
+
+  <div id="adminModal" class="modal fixed inset-0 z-[101] hidden items-center justify-center p-4">
+    <div class="modal-content w-full max-w-md">
+        <div class="modal-header">
+            <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2"><i class='bx bxs-cloud-upload'></i>Gerenciar Contas de Mídia</h2>
+            <button class="btn-close-modal text-3xl text-gray-400 hover:text-gray-600">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-sm text-gray-600 mb-4">Cole aqui as informações da **nova conta Cloudinary**.</p>
+            <form id="cloudinaryForm" class="space-y-4">
+                <div class="form-group">
+                  <label for="cloudNameInput" class="block text-sm font-medium text-gray-700 mb-1">Cloud Name</label>
+                  <input id="cloudNameInput" type="text" placeholder="ex: dfqdoome7" required class="p-2 border rounded w-full">
+                </div>
+                <div class="form-group">
+                  <label for="uploadPresetInput" class="block text-sm font-medium text-gray-700 mb-1">Upload Preset Name</label>
+                  <input id="uploadPresetInput" type="text" placeholder="ex: pvjfvkvb" required class="p-2 border rounded w-full">
+                </div>
+            </form>
+            <div class="mt-6 border-t pt-4">
+                <h3 class="font-semibold text-gray-700 mb-2">Conta Ativa Atualmente:</h3>
+                <p id="activeCloudinaryInfo" class="text-sm bg-gray-100 p-2 rounded">Carregando...</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-close-modal btn bg-gray-200 hover:bg-gray-300 text-gray-800">Cancelar</button>
+            <button type="submit" form="cloudinaryForm" class="btn bg-blue-600 hover:bg-blue-700 text-white">Salvar Nova Conta</button>
+        </div>
+    </div>
+  </div>
+
+  <div id="reportsModal" class="modal fixed inset-0 z-[101] hidden items-center justify-center p-4">
+    <div class="modal-content w-full max-w-4xl">
+        <div class="modal-header">
+            <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2"><i class='bx bxs-report'></i>Relatório de Veículos Entregues</h2>
+            <button class="btn-close-modal text-3xl text-gray-400 hover:text-gray-600">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="reportsForm" class="flex items-end gap-4 p-4 bg-gray-50 rounded-lg">
+                <div>
+                    <label for="startDate" class="block text-sm font-medium text-gray-700 mb-1">Data Início</label>
+                    <input type="date" id="startDate" required class="p-2 border rounded w-full">
+                </div>
+                <div>
+                    <label for="endDate" class="block text-sm font-medium text-gray-700 mb-1">Data Fim</label>
+                    <input type="date" id="endDate" required class="p-2 border rounded w-full">
+                </div>
+                <button type="submit" class="btn bg-blue-600 hover:bg-blue-700 text-white">Gerar</button>
+            </form>
+            <div id="reportsResultContainer" class="mt-4 max-h-96 overflow-y-auto"></div>
+        </div>
+        <div class="modal-footer">
+            <button id="exportReportBtn" class="btn bg-green-600 hover:bg-green-700 text-white hidden"><i class='bx bxs-file-export'></i>Exportar Lista (PDF)</button>
+            <button type="button" class="btn-close-modal btn bg-gray-200 hover:bg-gray-300 text-gray-800">Fechar</button>
+        </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf-autotable.min.js"></script>
+  <script src="js/app.js"></script>
+  
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(registration => {
+            console.log('Service Worker registrado com sucesso:', registration);
+          })
+          .catch(error => {
+            console.log('Falha ao registrar o Service Worker:', error);
+          });
+      });
+    }
+  </script>
+  
+</body>
+</html>

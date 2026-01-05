@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extrator Automático DS (V. Auto)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; text-align: center; }
+        button { padding: 15px 30px; font-size: 18px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; margin-top: 20px; width: 100%; max-width: 400px; }
+        #status { margin-top: 20px; color: #aaa; font-size: 14px; }
+        #jsonOutput { width: 100%; height: 200px; background: #000; color: #0f0; margin-top: 20px; display: none; font-family: monospace; }
+    </style>
+</head>
+<body>
+
+    <h1>AUTOMACÃO DE CATÁLOGO</h1>
+    <p>Selecione o PDF e aguarde. O sistema fará a associação automática.</p>
+
+    <input type="file" id="pdfInput" accept="application/pdf" style="display:none" onchange="iniciarAutomacao(this)">
+    <button onclick="document.getElementById('pdfInput').click()">SELECIONAR PDF DS</button>
+
+    <div id="status">Aguardando arquivo...</div>
+    <textarea id="jsonOutput"></textarea>
+    <button id="btnCopy" style="display:none; background:#16a34a;" onclick="copiar()">COPIAR JSON</button>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        // LISTA DE "GATILHOS" - O robô procura isso para saber do que se trata a página
+        const CATEGORIAS_CONHECIDAS = [
+            "SENSOR DE ROTAÇÃO", "SENSOR DE FASE", "SENSOR DE VELOCIDADE", "SENSOR ABS",
+            "SENSOR DE POSIÇÃO", "SENSOR DE POSICAO", "TPS", "BORBOLETA", 
+            "SENSOR MAP", "SENSOR MAF", "FLUXO DE AR", "PRESSÃO DO COLETOR",
+            "REGULADOR DE PRESSÃO", "REGULADOR DE PRESSAO", "AMORTECEDOR",
+            "ATUADOR DE MARCHA LENTA", "MOTOR DE PASSO", "IAC",
+            "BOMBA DE COMBUSTÍVEL", "MODULO DE COMBUSTIVEL", 
+            "SENSOR DE NIVEL", "SENSOR DE NÍVEL", "BOIA", "FLANGE",
+            "SONDA LAMBDA", "SENSOR DE OXIGÊNIO",
+            "BOBINA", "VELA", "CABO DE IGNIÇÃO", "DISTRIBUIDOR", "ROTOR", "TAMPA",
+            "INTERRUPTOR", "VÁLVULA", "ELETROVÁLVULA", "BICO INJETOR", "TENSIONADOR"
+        ];
+
+        async function iniciarAutomacao(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            document.getElementById('status').innerText = "Lendo PDF... (Processando memória visual)";
+            
+            const buffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument(buffer).promise;
+            
+            let pecasIdentificadas = [];
+            let contextoAtual = "Peça DS (Geral)"; // Começa genérico
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                document.getElementById('status').innerText = `Processando página ${i} de ${pdf.numPages}...`;
+                
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                
+                // ORDENAÇÃO VISUAL RIGOROSA (De cima para baixo, esquerda para direita)
+                // Isso garante que ele leia o TÍTULO antes do CÓDIGO
+                const itens = content.items.map(item => ({
+                    texto: item.str,
+                    x: item.transform[4],
+                    y: item.transform[5] // PDF Y começa de baixo, vamos inverter na lógica
+                })).sort((a, b) => {
+                    // Ordena por Y (decrescente, pois PDF 0,0 é canto inferior esquerdo)
+                    if (Math.abs(a.y - b.y) > 10) return b.y - a.y; 
+                    return a.x - b.x; // Se mesma linha, ordena por X
+                });
+
+                // Análise item a item
+                let pecaDaPagina = null;
+                let bufferAplicacao = "";
+
+                for (let item of itens) {
+                    let txt = item.texto.trim();
+                    if (txt.length < 2) continue;
+                    let txtUp = txt.toUpperCase();
+
+                    // 1. DETECTOR DE CONTEXTO (O Cérebro da Operação)
+                    // Se achar uma palavra chave, atualiza o contexto global
+                    for (let cat of CATEGORIAS_CONHECIDAS) {
+                        if (txtUp.includes(cat)) {
+                            contextoAtual = cat; // "Agora estou lendo SENSOR DE ROTAÇÃO"
+                            // console.log("Contexto mudou para: " + contextoAtual);
+                        }
+                    }
+
+                    // 2. DETECTOR DE CÓDIGO DS
+                    // Procura padrão 4 dígitos (ex: 1848, 1917)
+                    // Ignora anos (1990-2025)
+                    const match = txt.match(/^(?:DS\s*)?(\d{4}[A-Z]?)$/i);
+                    
+                    if (match) {
+                        let numero = parseInt(match[1]);
+                        let pareceAno = (numero > 1980 && numero < 2026);
+
+                        if (!pareceAno) {
+                            // Salvamos a peça anterior
+                            if (pecaDaPagina) {
+                                pecaDaPagina.aplicacao += " " + bufferAplicacao;
+                                pecaDaPagina.aplicacao = limparTexto(pecaDaPagina.aplicacao);
+                                pecasIdentificadas.push(pecaDaPagina);
+                            }
+
+                            // Criamos a nova peça JÁ COM O NOME CERTO
+                            pecaDaPagina = {
+                                codigo: "DS " + match[1],
+                                marca: "DS",
+                                descricao: contextoAtual, // <--- AQUI A MÁGICA
+                                aplicacao: "" 
+                            };
+                            bufferAplicacao = ""; // Zera buffer
+                            continue; // Pula pro próximo item
+                        }
+                    }
+
+                    // 3. ACUMULADOR DE APLICAÇÃO
+                    // Se não é título nem código, é texto de aplicação
+                    if (!["TECNOLOGIA", "PAGE", "DS", "PADRÃO", "MONTADORA"].some(x => txtUp.includes(x))) {
+                        bufferAplicacao += " " + txt;
+                        // Se achar palavras chave no meio da aplicação, reforça o contexto
+                        for (let cat of CATEGORIAS_CONHECIDAS) {
+                            if (txtUp.includes(cat) && pecaDaPagina) {
+                                pecaDaPagina.descricao = cat; // Corrige se o contexto estava errado antes
+                            }
+                        }
+                    }
+                }
+                // Salva última da página
+                if (pecaDaPagina) {
+                    pecaDaPagina.aplicacao += " " + bufferAplicacao;
+                    pecaDaPagina.aplicacao = limparTexto(pecaDaPagina.aplicacao);
+                    pecasIdentificadas.push(pecaDaPagina);
+                }
+            }
+
+            // GERA O JSON FINAL
+            const jsonFinal = { pecas: pecasIdentificadas };
+            const jsonStr = JSON.stringify(jsonFinal, null, 2);
+            
+            document.getElementById('jsonOutput').value = jsonStr;
+            document.getElementById('jsonOutput').style.display = 'block';
+            document.getElementById('btnCopy').style.display = 'block';
+            document.getElementById('status').innerText = `SUCESSO! ${pecasIdentificadas.length} peças extraídas e classificadas automaticamente.`;
+        }
+
+        function limparTexto(str) {
+            return str.replace(/\s+/g, ' ').trim();
+        }
+
+        function copiar() {
+            let texto = document.getElementById('jsonOutput');
+            texto.select();
+            texto.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(texto.value);
+            alert("Copiado! Cole no 'cerebro.html' e o thIAguinho saberá tudo.");
+        }
+    </script>
+</body>
+</html>

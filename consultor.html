@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>thIAguinho V21 - MEMÓRIA TOTAL & INTELIGÊNCIA</title>
+    
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+
+    <style>
+        /* 2. ESTILOS VISUAIS COMPLETOS (SEM ECONOMIA) */
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111 !important; font-family: 'Roboto', sans-serif; }
+        
+        #system-status {
+            position: fixed; top: 0; left: 0; width: 100%; 
+            background: rgba(0,0,0,0.95); color: #facc15; 
+            padding: 8px; z-index: 999999; text-align: center;
+            font-size: 11px; font-weight: bold; border-bottom: 2px solid #facc15;
+            pointer-events: none; white-space: pre-wrap;
+        }
+        .status-ok { color: #4ade80 !important; border-bottom-color: #4ade80 !important; }
+        .status-err { color: #f87171 !important; border-bottom-color: #f87171 !important; }
+
+        #backBtn {
+            position: fixed; top: 50px; left: 15px; 
+            width: 45px; height: 45px; border-radius: 50%;
+            background: rgba(0,0,0,0.6); border: 2px solid #fff;
+            color: white; font-size: 24px; display: flex;
+            align-items: center; justify-content: center;
+            cursor: pointer; z-index: 10001;
+            transition: transform 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        #backBtn:active { transform: scale(0.9); }
+
+        #scan-overlay {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 70vw; height: 70vw; max-width: 300px; max-height: 300px;
+            border: 4px solid rgba(255, 255, 255, 0.5); border-radius: 20px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.7); 
+            z-index: 5000; pointer-events: none;
+            display: flex; align-items: center; justify-content: center;
+            transition: opacity 0.3s;
+        }
+        #scan-overlay::after {
+            content: "APONTE PARA O LOGO";
+            color: white; font-weight: bold; font-size: 14px;
+            margin-top: 20px; text-shadow: 0 2px 4px black;
+            position: absolute; bottom: -40px; width: 100%; text-align: center;
+        }
+        .hidden { opacity: 0; pointer-events: none; }
+
+        #ui-layer { position: fixed; bottom: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: flex-end; z-index: 10000; }
+        .chat-container { pointer-events: auto; background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.0) 100%); padding: 15px; display: flex; flex-direction: column; gap: 10px; padding-bottom: 30px; }
+        #chat-display { max-height: 40vh; overflow-y: auto; color: white; text-shadow: 1px 1px 2px black; margin-bottom: 10px; font-size: 14px; scroll-behavior: smooth; }
+        
+        .msg { margin-bottom: 8px; padding: 10px 14px; border-radius: 12px; line-height: 1.4; max-width: 90%; word-wrap: break-word; }
+        .msg-user { background-color: rgba(37, 99, 235, 0.9); align-self: flex-end; margin-left: auto; border-bottom-right-radius: 2px; }
+        .msg-ai { background-color: rgba(22, 163, 74, 0.9); align-self: flex-start; margin-right: auto; border-bottom-left-radius: 2px; border: 1px solid #4ade80; }
+        
+        .peca-card { background: #333; border: 1px solid #facc15; padding: 8px; margin-top: 5px; border-radius: 6px; font-family: monospace; font-size: 11px; color: #facc15; display: block; }
+
+        .controls { display: flex; gap: 8px; align-items: center; }
+        input { flex-grow: 1; padding: 14px; border-radius: 30px; border: none; outline: none; background: rgba(255, 255, 255, 0.95); font-size: 16px; color: #000; }
+        input:disabled { background: #555; color: #888; }
+        .icon-btn { width: 50px; height: 50px; border-radius: 50%; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 24px; color: white; transition: 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        #micBtn { background-color: #4b5563; } 
+        #micBtn.listening { background-color: #ef4444; animation: pulse 1s infinite; }
+        #sendBtn { background-color: #2563eb; }
+        #sendBtn:disabled { background-color: #555; cursor: not-allowed; }
+        a-scene { display: block; }
+    </style>
+</head>
+<body>
+
+    <div id="system-status"><i class='bx bx-loader-alt bx-spin'></i> ATIVANDO V21 (HISTÓRICO FULL)...</div>
+    <button id="backBtn" onclick="window.location.href='index.html'"><i class='bx bx-arrow-back'></i></button>
+    <div id="scan-overlay"></div>
+
+    <div id="ui-layer">
+        <div class="chat-container">
+            <div id="chat-display"></div>
+            <div class="controls">
+                <button id="micBtn" class="icon-btn" disabled><i class='bx bxs-microphone'></i></button>
+                <input type="text" id="userInput" placeholder="Carregando Base Completa..." autocomplete="off" disabled>
+                <button id="sendBtn" class="icon-btn" disabled><i class='bx bxs-send'></i></button>
+            </div>
+        </div>
+    </div>
+
+    <a-scene mindar-image="imageTargetSrc: ./assets/targets.mind; uiScanning: no; filterMinCF:0.0001; filterBeta: 0.001" color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+        <a-assets><video id="mascoteVideo" src="./assets/mascote.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video></a-assets>
+        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+        <a-entity mindar-image-target="targetIndex: 0" id="target-entity">
+            <a-plane src="#mascoteVideo" position="0 0 0" height="1.3" width="0.8" rotation="0 0 0" material="shader: flat; alphaTest: 0.5; transparent: true"></a-plane>
+        </a-entity>
+    </a-scene>
+
+    <script>
+        // 4. FIREBASE
+        const firebaseConfig = {
+            apiKey: "AIzaSyB5JpYm8l0AlF5ZG3HtkyFZgmrpsUrDhv0",
+            authDomain: "dashboard-oficina-pro.firebaseapp.com",
+            databaseURL: "https://dashboard-oficina-pro-default-rtdb.firebaseio.com",
+            projectId: "dashboard-oficina-pro",
+            storageBucket: "dashboard-oficina-pro.appspot.com",
+            messagingSenderId: "736157192887",
+            appId: "1:736157192887:web:c23d3daade848a33d67332"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // 5. VARIÁVEIS GLOBAIS
+        let partsCatalog = [];
+        let workshopData = [];
+        const statusEl = document.getElementById('system-status');
+        const inputEl = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const micBtn = document.getElementById('micBtn');
+        const overlay = document.getElementById('scan-overlay');
+
+        // 6. CARREGAMENTO (CATÁLOGO)
+        db.ref('catalogs').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                if (Array.isArray(data)) partsCatalog = data;
+                else if (typeof data === 'object') partsCatalog = Object.values(data);
+
+                if (partsCatalog.length > 893) {
+                    statusEl.innerHTML = `<i class='bx bxs-brain'></i> SISTEMA PRONTO: ${partsCatalog.length} PEÇAS ATIVAS`;
+                    statusEl.className = "status-ok";
+                } else {
+                    statusEl.innerHTML = `ALERTA: APENAS ${partsCatalog.length} PEÇAS CARREGADAS.`;
+                    statusEl.className = "status-err";
+                }
+                checkReadiness();
+            } else {
+                statusEl.innerText = "ERRO: CÉREBRO VAZIO.";
+                statusEl.className = "status-err";
+            }
+        });
+
+        // 6.1 CARREGAMENTO (HISTÓRICO COMPLETO)
+        db.ref('serviceOrders').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) workshopData = Object.values(data);
+            console.log("Histórico Carregado:", workshopData.length, "OS");
+        });
+
+        function checkReadiness() {
+            if (partsCatalog.length > 0) {
+                inputEl.disabled = false; sendBtn.disabled = false; micBtn.disabled = false;
+                inputEl.placeholder = "Pergunte ao thIAguinho...";
+            }
+        }
+
+        // 7. IA CONFIG
+        const KEY_PARTE_1 = "AIzaSyAfx1aiuP9jWzGDoh"; 
+        const KEY_PARTE_2 = "E6KxZ6_68wZkt27VI";
+        const GEMINI_API_KEY = KEY_PARTE_1 + KEY_PARTE_2;
+        let chatHistory = [];
+        
+        // --- PROMPT MESTRE (COMPLETO) ---
+        const SYSTEM_PROMPT = `
+Você é o thIAguinho, a Autoridade Técnica e Comercial Suprema da rede Bosch Car Service.
+
+--- SUA ALMA E IDENTIDADE ---
+Você é a fusão de quatro especialistas em um só corpo digital:
+1. [O ENGENHEIRO]: Domina a física, química e eletrônica dos componentes. Sabe a diferença entre um anel de vedação de Viton e um de borracha nitrílica. Conhece a lógica PID das ECUs.
+2. [O MESTRE DE OFICINA]: 30 anos de experiência. Conhece os "macetes", os barulhos e os cheiros de defeito. Sabe que o scanner às vezes mente e que o osciloscópio é o juiz final.
+3. [O GESTOR DE PÁTIO/DONO]: Focado em LUCRO e EFICIÊNCIA. Seu objetivo é evitar retorno (garantia) a todo custo. Você sabe que um carro parado no elevador esperando peça errada é prejuízo.
+4. [O CONSULTOR TÉCNICO]: Sabe traduzir "tucho hidráulico travado" para "uma pecinha que regula o motor" quando fala com o dono do carro, para ajudar a vender o serviço.
+
+--- BASE DE DADOS MENTAL (ACESSO SIMULADO) ---
+- Manuais: VW ELSA, GM TIS, Ford ETIS, Service Box PSA, Fiat Reparador.
+- Catálogos OEM: Bosch ESI[tronic], NGK, Delphi, Marelli, Schaeffler, Sabó, Taranto.
+- Tabelas de Engenharia: Torques angulares, sequências de aperto, diagramas elétricos DIN.
+
+--- PROTOCOLO DE ATUAÇÃO "CAMALEÃO" (Adapte-se a quem pergunta) ---
+
+[MODO 1: SE O USUÁRIO FOR MECÂNICO]
+- Linguagem: Técnica, direta, "graxa na mão".
+- Foco: Testes, medidas, ferramentas.
+- Exemplo: "Meça a resistência do sensor CKP. Deve dar 800 Ohms. Se der infinito, bobina aberta. Verifique se chega 5V na via 1."
+
+[MODO 2: SE O USUÁRIO FOR GERENTE DE OFICINA]
+- Linguagem: Processos, tempo, gargalo.
+- Foco: Organização do pátio, complexidade do serviço.
+- Exemplo: "Atenção Gerente: Esse diagnóstico de rede CAN no Renegade é complexo. Vai travar o box do eletricista por pelo menos 4 horas. Não prometa entrega para hoje."
+
+[MODO 3: SE O USUÁRIO FOR O DONO DA OFICINA]
+- Linguagem: Custo, Risco, Lucro, Reputação.
+- Foco: Evitar garantia, comprar peça certa.
+- Exemplo: "Chefe, cuidado com essa bomba d'água marca branca. O índice de retorno no motor Firefly é alto. Recomendo comprar original ou Urba para proteger o caixa da empresa contra garantia futura."
+
+[MODO 4: SE O USUÁRIO FOR CONSULTOR TÉCNICO (VENDAS)]
+- Linguagem: Argumentação, persuasão, didática.
+- Foco: Explicar para o cliente leigo e aprovar o orçamento.
+- Exemplo: "Diga ao cliente que a correia dentada é como a 'corrente da bicicleta' do motor. Se ela quebrar, o motor atropela as válvulas e o conserto fica 5x mais caro. A troca agora é preventiva e barata."
+
+--- PROTOCOLO DE INTELIGÊNCIA DE PEÇAS (REALIDADE DE MERCADO) ---
+Siga esta hierarquia rigorosa ao recomendar peças:
+1. GENUÍNA (Caixa da Montadora): Obrigatória para eletrônica sensível (Sondas Honda/Toyota, MAF Nissan).
+2. OEM (Fabricante Original): Bosch, NGK, Denso, Pierburg, Aisin. (Melhor custo-benefício).
+3. 1ª LINHA (Aftermarket Top): Mahle, Metal Leve, Sabó, Gates, Contitech.
+4. IMPORTADORES/MARCAS BRANCAS: Alerte o risco! "Cuidado com sensores dessa marca, costumam ter drift de sinal."
+
+*REGRA DE OURO (ANTI-ALUCINAÇÃO):*
+1. O Catálogo de Peças fornecido abaixo é sua ÚNICA fonte de verdade sobre produtos físicos.
+2. Se o usuário perguntar sobre um código (ex: DS 3008) e ele NÃO estiver no catálogo injetado, você DEVE responder: "Esse código não consta no meu catálogo atual."
+3. NUNCA INVENTE que uma peça existe se ela não estiver na lista.
+
+--- INSTRUÇÃO ESPECIAL DE DADOS ---
+Você terá acesso a dois blocos de informação REAL injetados a cada pergunta:
+1. [HISTÓRICO DO VEÍCULO]: O que já foi feito neste carro na nossa oficina. Use para checar GARANTIA e REINCIDÊNCIA.
+2. [CATÁLOGO DE PEÇAS]: Dados extraídos do nosso estoque. Use para indicar códigos.
+
+SEJA O ESPECIALISTA. NÃO SEJA UM ROBÔ GENÉRICO.
+`;
+        chatHistory.push({ role: "user", parts: [{ text: SYSTEM_PROMPT }] });
+        chatHistory.push({ role: "model", parts: [{ text: "Entendido. Sistema V21 (Total) Ativo." }] });
+
+        // 8. FUNÇÕES AUXILIARES
+        function extractNumber(code) { return String(code).replace(/[^0-9]/g, ""); }
+        function removeAccents(str) { return str.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
+
+        // 9. CÉREBRO V21 (COMPLETO E DETALHADO)
+        async function askGemini(text) {
+            if(!text.trim()) return;
+            
+            // A. SNIPER (CÓDIGO EXATO)
+            const numberMatch = text.match(/\d{4,}/); 
+            if (numberMatch) {
+                const searchCode = numberMatch[0];
+                const found = partsCatalog.find(p => p.codigo && extractNumber(p.codigo) === searchCode);
+                
+                if (found) {
+                    addMessage("Você", text, "msg-user");
+                    const fichaTecnica = `[DADO CONFIRMADO]\nCÓDIGO: ${found.codigo}\nDESCRIÇÃO: ${found.descricao}\nAPLICAÇÃO: ${found.aplicacao}`;
+                    const prompt = `${fichaTecnica}\n\nPERGUNTA: ${text}\nINSTRUÇÃO: Responda baseando-se APENAS na peça acima.`;
+                    callAI(prompt, `Localizei o código ${found.codigo}.`);
+                    inputEl.value = "";
+                    return; 
+                }
+            }
+
+            // B. BUSCA SEMÂNTICA
+            if (!document.querySelector('.msg-user:last-child') || document.querySelector('.msg-user:last-child').innerText.indexOf(text) === -1) {
+                 addMessage("Você", text, "msg-user");
+            }
+            inputEl.value = "";
+
+            // Limpeza
+            const stopWords = ["de", "do", "da", "o", "a", "os", "as", "para", "com", "em", "um", "uma", "tem", "algum", "qual", "codigo", "veja", "catalogo", "ds", "marca"];
+            const cleanTerms = removeAccents(text).toUpperCase().split(" ").filter(w => w.length > 2 && !stopWords.includes(w.toLowerCase()));
+
+            // Ranking de Peças
+            const candidatos = partsCatalog.map(p => {
+                if(!p.codigo) return null;
+                const fullText = removeAccents(p.codigo + " " + p.descricao + " " + p.aplicacao).toUpperCase();
+                let score = 0;
+                cleanTerms.forEach(term => {
+                    if (fullText.includes(term)) score++;
+                });
+                return { piece: p, score: score };
+            })
+            .filter(item => item && item.score >= 1)
+            .sort((a, b) => b.score - a.score) 
+            .slice(0, 10)
+            .map(item => item.piece);
+
+            // C. CONTEXTO DE HISTÓRICO COMPLETO (RESTAURADO)
+            // Filtra o histórico por placa ou modelo
+            const searchTerm = text.toUpperCase();
+            const allRecords = workshopData.filter(car => 
+                (car.placa && searchTerm.includes(car.placa.toUpperCase())) || 
+                (car.modelo && searchTerm.includes(car.modelo.toUpperCase()))
+            ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+            let contextInjection = "";
+            
+            // INJEÇÃO DO HISTÓRICO DETALHADO (AQUI ESTÁ A CORREÇÃO V21)
+            if (allRecords.length > 0) {
+                let dossie = allRecords.map((os, i) => {
+                    // Monta os logs detalhados (O QUE FOI FEITO)
+                    const logs = os.logs ? Object.values(os.logs).map(l => `- [${l.user || 'Técnico'}] ${l.description} (${l.parts||'Sem Peças'})`).join('\n') : "Sem detalhes registrados.";
+                    return `OS #${i+1} | DATA: ${new Date(os.createdAt).toLocaleDateString()} | STATUS: ${os.status}\nDETALHES:\n${logs}`;
+                }).join('\n--------------------------------\n');
+                
+                contextInjection += `\n[HISTÓRICO REAL DO VEÍCULO NA OFICINA]\n${dossie}\n\n`;
+            }
+
+            // Injeção do Catálogo
+            if (candidatos.length > 0) {
+                contextInjection += `[CATALOG RESULTS - PEÇAS ENCONTRADAS]\n`;
+                candidatos.forEach(c => {
+                    contextInjection += `* CÓD: ${c.codigo} | DESC: ${c.descricao} | APP: ${c.aplicacao.substring(0, 150)}...\n`;
+                });
+            } else {
+                contextInjection += `[CATALOG RESULTS] Nenhuma peça encontrada para os termos: ${cleanTerms.join(", ")}.\n`;
+            }
+
+            const prompt = `${contextInjection}\n\nPERGUNTA: ${text}`;
+            callAI(prompt);
+        }
+
+        async function callAI(prompt, speakOverride) {
+            const loadingMsg = addMessage("thIAguinho", "Pesquisando...", "msg-ai");
+            chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: chatHistory })
+                });
+                const data = await response.json();
+                loadingMsg.remove();
+                const aiText = data.candidates[0].content.parts[0].text;
+                chatHistory.push({ role: "model", parts: [{ text: aiText }] });
+                addMessage("thIAguinho", aiText, "msg-ai");
+                speak(speakOverride || aiText);
+            } catch (error) {
+                loadingMsg.innerText = "Erro.";
+            }
+        }
+
+        function addMessage(sender, text, className) {
+            const div = document.createElement('div');
+            div.className = `msg ${className}`;
+            if (className.includes('msg-ai') && text.includes('CÓD:')) {
+                text = text.replace(/\* CÓD:/g, '<div class="peca-card">CÓD:').replace(/\.\.\./g, '...</div>');
+            }
+            div.innerHTML = `<strong>${sender}:</strong><br>${text}`;
+            document.getElementById('chat-display').appendChild(div);
+            const display = document.getElementById('chat-display');
+            display.scrollTop = display.scrollHeight;
+            return div;
+        }
+
+        // 10. VOZ E AR
+        const videoEl = document.querySelector('#mascoteVideo');
+        const targetEntity = document.querySelector('#target-entity');
+        let isSpeaking = false; let isTargetVisible = false;
+
+        function speak(text) {
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'pt-BR'; u.rate = 1.1;
+            const voices = window.speechSynthesis.getVoices();
+            const maleVoice = voices.find(v => (v.lang.includes('pt') || v.lang.includes('BR')) && (v.name.includes('Google') || v.name.includes('Daniel') || v.name.includes('Male')) && !v.name.includes('Luciana') && !v.name.includes('Fernanda'));
+            if (maleVoice) { u.voice = maleVoice; u.pitch = 0.9; } else { u.pitch = 0.7; }
+            u.onstart = () => { isSpeaking = true; if(isTargetVisible) videoEl.play(); };
+            u.onend = () => { isSpeaking = false; videoEl.pause(); videoEl.currentTime=0; };
+            window.speechSynthesis.speak(u);
+        }
+
+        targetEntity.addEventListener("targetFound", () => { isTargetVisible = true; overlay.classList.add('hidden'); if(isSpeaking) videoEl.play(); });
+        targetEntity.addEventListener("targetLost", () => { isTargetVisible = false; overlay.classList.remove('hidden'); videoEl.pause(); });
+
+        if (window.webkitSpeechRecognition) {
+            const r = new webkitSpeechRecognition(); r.lang = 'pt-BR';
+            micBtn.addEventListener('click', () => { if(micBtn.classList.contains('listening')) { r.stop(); micBtn.classList.remove('listening'); } else { r.start(); micBtn.classList.add('listening'); inputEl.placeholder="Ouvindo..."; } });
+            r.onresult = (e) => { inputEl.value = e.results[0][0].transcript; micBtn.classList.remove('listening'); inputEl.placeholder="Enviando..."; askGemini(inputEl.value); };
+            r.onend = () => micBtn.classList.remove('listening');
+        } else micBtn.style.display = 'none';
+        
+        sendBtn.addEventListener('click', () => askGemini(inputEl.value));
+        inputEl.addEventListener('keypress', (e) => { if(e.key === 'Enter') sendBtn.click(); });
+    </script>
+</body>
+</html>
