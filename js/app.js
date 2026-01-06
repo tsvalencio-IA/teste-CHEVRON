@@ -100,6 +100,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const USERS = [
     { name: 'Augusto', role: 'Gestor', password: 'jose' },
+    { name: 'Wilson', role: 'Gestor', password: 'wilson' },
+    { name: 'Rosely', role: 'Gestor', password: 'rose' },
     { name: 'William Barbosa', role: 'Atendente', password: '2312' },
     { name: 'Thiago Ventura Valencio', role: 'Atendente', password: '1940' },
     { name: 'Fernando', role: 'Mecânico', password: 'fernando' },
@@ -107,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { name: 'Marcelo', role: 'Mecânico', password: 'marcelo' }
   ];
 
-  const USERS_CAN_DELETE_MEDIA = ['Thiago Ventura Valencio', 'William Barbosa', 'Augusto'];
+  const USERS_CAN_DELETE_MEDIA = ['Thiago Ventura Valencio', 'William Barbosa', 'Augusto', 'Wilson', 'Rosely'];
 
   const STATUS_LIST = [ 'Aguardando-Mecanico', 'Em-Analise', 'Orcamento-Enviado', 'Aguardando-Aprovacao', 'Servico-Autorizado', 'Em-Execucao', 'Finalizado-Aguardando-Retirada', 'Entregue' ];
   const ATTENTION_STATUSES = { 'Aguardando-Mecanico': { label: 'AGUARDANDO MECÂNICO', color: 'yellow', blinkClass: 'blinking-aguardando' }, 'Servico-Autorizado': { label: 'SERVIÇO AUTORIZADO', color: 'green', blinkClass: 'blinking-autorizado' } };
