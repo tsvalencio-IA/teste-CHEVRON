@@ -552,7 +552,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // CORREÇÃO AQUI: Lógica robusta para exibir imagens antigas (Legacy) que não possuem o campo 'type'
+  // CORREÇÃO AQUI: Lógica robusta para exibir imagens antigas (Legacy) + TRATAMENTO DE ERRO 401
   const renderMediaGallery = (os) => {
     const media = os.media || {};
     const mediaEntries = Object.entries(media);
@@ -599,7 +599,9 @@ document.addEventListener('DOMContentLoaded', () => {
         let thumbnailContent = `<i class='bx bx-file text-4xl text-gray-500'></i>`;
         
         if (isImage) { 
-            thumbnailContent = `<img src="${item.url}" alt="Mídia" loading="lazy" class="w-full h-full object-cover">`; 
+            const fallbackHTML = "<div class='flex flex-col items-center justify-center w-full h-full bg-gray-100 text-gray-400 p-2 text-center'><i class='bx bxs-error-circle text-2xl mb-1 text-red-300'></i><span class='text-[10px] leading-tight'>Indisponível</span></div>";
+            // Adicionado onerror para capturar 401 e mostrar mensagem amigável
+            thumbnailContent = `<img src="${item.url}" alt="Mídia" loading="lazy" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='${fallbackHTML}'">`; 
         } else if (isVideo) { 
             thumbnailContent = `<i class='bx bx-play-circle text-4xl text-blue-500'></i>`; 
         } else if (isPdf) { 
