@@ -47,6 +47,19 @@ function showNotification(message, type = 'success') {
 }
 
 /* ==================================================================
+FUNÇÕES AUXILIARES
+==================================================================
+*/
+function formatBytes(bytes, decimals = 2) {
+    if (!+bytes) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
+/* ==================================================================
 LÓGICA DE UPLOAD DE ARQUIVOS (AGORA COM CLOUDINARY)
 ==================================================================
 */
@@ -74,7 +87,8 @@ const uploadFileToCloudinary = async (file) => {
     const data = await response.json();
     return {
         url: data.secure_url,
-        configKey: activeCloudinaryConfig.key // Salva a chave da config usada
+        configKey: activeCloudinaryConfig.key, // Salva a chave da config usada
+        bytes: data.bytes // Retorna o tamanho do arquivo
     };
   } catch (error) {
     console.error("Erro no upload para o Cloudinary:", error);
@@ -406,7 +420,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (latestConfig) {
             activeCloudinaryConfig = { ...latestConfig, key: latestKey };
-            activeCloudinaryInfo.textContent = `Cloud Name: ${activeCloudinaryConfig.cloudName} | Preset: ${activeCloudinaryConfig.uploadPreset}`;
+            const usageText = latestConfig.usage ? ` | Enviado: ${formatBytes(latestConfig.usage)}` : ' | Enviado: 0 B';
+            activeCloudinaryInfo.textContent = `Cloud Name: ${activeCloudinaryConfig.cloudName} | Preset: ${activeCloudinaryConfig.uploadPreset}${usageText}`;
         }
         
       } else {
@@ -599,7 +614,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let thumbnailContent = `<i class='bx bx-file text-4xl text-gray-500'></i>`;
         
         if (isImage) { 
-            const fallbackHTML = "<div class='flex flex-col items-center justify-center w-full h-full bg-gray-100 text-gray-400 p-2 text-center'><i class='bx bxs-error-circle text-2xl mb-1 text-red-300'></i><span class='text-[10px] leading-tight'>Indisponível</span></div>";
+            const fallbackHTML = "<div class='flex flex-col items-center justify-center w-full h-full bg-gray-100 text-gray-400 p-2 text-center'><i class='bx bxs-error-circle text-2xl mb-1 text-red-300'></i><span class='text-[10px] leading-tight'>Indisponível (Conta Expirada)</span></div>";
             // Adicionado onerror para capturar 401 e mostrar mensagem amigável
             thumbnailContent = `<img src="${item.url}" alt="Mídia" loading="lazy" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='${fallbackHTML}'">`; 
         } else if (isVideo) { 
@@ -863,14 +878,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     url: result.url,
                     configKey: result.configKey,
                     name: file.name,
-                    timestamp: new Date().toISOString()
+                    timestamp: new Date().toISOString(),
+                    bytes: result.bytes // Passa os bytes para o próximo passo
                 }))
             );
             const mediaResults = await Promise.all(mediaPromises);
+            
+            // SOMAR USO E SALVAR NO BANCO
+            let totalBytesUploaded = 0;
             const mediaRef = db.ref(`serviceOrders/${osId}/media`);
             mediaResults.forEach(result => {
                 mediaRef.push().set(result);
+                if (result.bytes) totalBytesUploaded += result.bytes;
             });
+
+            // Atualiza o contador de uso na config ativa
+            if (totalBytesUploaded > 0 && activeCloudinaryConfig && activeCloudinaryConfig.key) {
+                const configRef = db.ref(`cloudinaryConfigs/${activeCloudinaryConfig.key}/usage`);
+                configRef.transaction(currentUsage => {
+                    return (currentUsage || 0) + totalBytesUploaded;
+                });
+            }
         }
         const logsRef = db.ref(`serviceOrders/${osId}/logs`);
         const newLogRef = logsRef.push();
