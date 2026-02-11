@@ -7,7 +7,7 @@ const firebaseConfig = {
   authDomain: "dashboard-oficina-pro.firebaseapp.com",
   databaseURL: "https://dashboard-oficina-pro-default-rtdb.firebaseio.com",
   projectId: "dashboard-oficina-pro",
-  storageBucket: "dashboard-oficina-pro.firebasestorage.app", // Storage Nativo
+  storageBucket: "dashboard-oficina-pro.firebasestorage.app",
   messagingSenderId: "736157192887",
   appId: "1:736157192887:web:c23d3daade848a33d67332"
 };
@@ -18,7 +18,7 @@ VARIÁVEIS GLOBAIS
 */
 let activeCloudinaryConfig = null;
 let allCloudinaryConfigs = {};
-let sortedCloudinaryConfigs = []; // ARRAY ORDENADO PARA A "MÁQUINA DO TEMPO"
+let sortedCloudinaryConfigs = []; 
 
 /* ==================================================================
 SISTEMA DE NOTIFICAÇÕES
@@ -48,7 +48,7 @@ function showNotification(message, type = 'success') {
 }
 
 /* ==================================================================
-FUNÇÕES AUXILIARES E INTELIGÊNCIA DE ARQUIVOS
+FUNÇÕES AUXILIARES E OTIMIZAÇÃO (DEBOUNCE)
 ==================================================================
 */
 function formatBytes(bytes, decimals = 2) {
@@ -60,21 +60,27 @@ function formatBytes(bytes, decimals = 2) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
-// Descobre o tipo de arquivo pela extensão ou URL
+// OTIMIZAÇÃO: Função para evitar travamentos na renderização
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+    };
+}
+
 function getMediaTypeFromUrl(url) {
     if (!url) return 'image';
     try {
-        // Se for Firebase Storage e tiver token de imagem
         if (url.includes('firebasestorage')) {
              const lowerUrl = url.toLowerCase();
              if (lowerUrl.includes('.mp4') || lowerUrl.includes('video') || lowerUrl.match(/\.(mp4|webm|ogg)\?/i)) return 'video';
              if (lowerUrl.includes('.pdf') || lowerUrl.match(/\.pdf\?/i)) return 'pdf';
              return 'image';
         }
-
         const cleanUrl = url.split('?')[0].split('#')[0];
         const extension = cleanUrl.split('.').pop().toLowerCase();
-        
         if (['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'].includes(extension)) return 'video';
         if (['pdf'].includes(extension)) return 'pdf';
         return 'image';
@@ -88,15 +94,14 @@ function reconstructUrl(item) {
     if (!item) return '';
     let urlToUse = item.url;
     
-    // 1. Se não tem URL, retorna vazio
     if (!urlToUse) return '';
 
-    // 2. Se for Firebase (Novo Sistema) ou URL completa, confia na URL
+    // Se for Firebase ou URL completa, confia na URL
     if (urlToUse.includes('firebasestorage') || urlToUse.startsWith('http')) {
         return urlToUse;
     }
     
-    // 3. Lógica para reconstruir Cloudinary legado (só nome do arquivo)
+    // Lógica para reconstruir Cloudinary legado
     if (item.timestamp && sortedCloudinaryConfigs.length > 0) {
         const itemTime = new Date(item.timestamp).getTime();
         let bestConfig = null;
@@ -115,13 +120,11 @@ function reconstructUrl(item) {
 
         if (bestConfig && bestConfig.cloudName) {
             const cleanPath = urlToUse.replace(/^\/+/, '');
-            // CORREÇÃO CRÍTICA: Remove o espaço do nome do banco
             const cleanCloudName = bestConfig.cloudName.trim();
             return `https://res.cloudinary.com/${cleanCloudName}/image/upload/${cleanPath}`;
         }
     }
     
-    // Último recurso Cloudinary Ativo
     if (activeCloudinaryConfig) {
          const cleanPath = urlToUse.replace(/^\/+/, '');
          return `https://res.cloudinary.com/${activeCloudinaryConfig.cloudName.trim()}/image/upload/${cleanPath}`;
@@ -135,7 +138,6 @@ MOTOR DE COMPRESSÃO (PARA IMAGENS NO FIREBASE)
 ==================================================================
 */
 const compressImage = async (file) => {
-    // Só comprime imagens
     if (!file.type.startsWith('image/')) return file;
 
     return new Promise((resolve) => {
@@ -148,7 +150,6 @@ const compressImage = async (file) => {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 
-                // Redimensiona para HD (1280px)
                 const maxWidth = 1280; 
                 const maxHeight = 1280;
                 let width = img.width;
@@ -170,7 +171,6 @@ const compressImage = async (file) => {
                 canvas.height = height;
                 ctx.drawImage(img, 0, 0, width, height);
 
-                // Comprime JPEG 70%
                 canvas.toBlob((blob) => {
                     const compressedFile = new File([blob], file.name, {
                         type: 'image/jpeg',
@@ -187,11 +187,9 @@ const compressImage = async (file) => {
 };
 
 /* ==================================================================
-LÓGICA DE UPLOAD HÍBRIDA (FIREBASE PARA FOTOS / CLOUDINARY PARA VÍDEOS)
+LÓGICA DE UPLOAD HÍBRIDA
 ==================================================================
 */
-
-// Função 1: Upload para Cloudinary (Para Vídeos/PDFs) - Mantém lógica de rodízio
 const uploadToCloudinary = async (file) => {
   if (!activeCloudinaryConfig) {
     throw new Error('Configuração Cloudinary não encontrada para vídeo/pdf.');
@@ -216,26 +214,20 @@ const uploadToCloudinary = async (file) => {
   const data = await response.json();
   return {
       url: data.secure_url,
-      configKey: activeCloudinaryConfig.key, // Mantém referência da conta
+      configKey: activeCloudinaryConfig.key,
       bytes: data.bytes,
       storageType: 'cloudinary'
   };
 };
 
-// Função 2: Upload para Firebase (Para Imagens)
 const uploadToFirebase = async (file) => {
     const compressedFile = await compressImage(file);
-    
-    // Organiza por Ano/Mes
     const date = new Date();
     const folder = `imagens/${date.getFullYear()}/${date.getMonth() + 1}`;
-    // Nome único limpo
     const cleanName = compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
     const fileName = `${Date.now()}_${cleanName}`;
     
     const storageRef = firebase.storage().ref().child(`${folder}/${fileName}`);
-    
-    // Upload
     const snapshot = await storageRef.put(compressedFile);
     const downloadURL = await snapshot.ref.getDownloadURL();
     
@@ -247,31 +239,22 @@ const uploadToFirebase = async (file) => {
     };
 };
 
-// Função Principal: Gerente de Upload
 const processUpload = async (file, db) => {
     let result;
     
     if (file.type.startsWith('image/')) {
-        // IMAGENS -> FIREBASE
         showNotification("Otimizando e enviando para Firebase...", "info");
         result = await uploadToFirebase(file);
-        
-        // Contador do Firebase (NOVO)
         const fbUsageRef = db.ref('firebaseStorageUsage');
         fbUsageRef.transaction(current => (current || 0) + result.bytes);
-        
     } else {
-        // VÍDEOS/PDFs -> CLOUDINARY
         showNotification("Enviando vídeo para Cloudinary...", "info");
         result = await uploadToCloudinary(file);
-        
-        // Contador do Cloudinary (MANTIDO)
         if (activeCloudinaryConfig && activeCloudinaryConfig.key) {
             const configRef = db.ref(`cloudinaryConfigs/${activeCloudinaryConfig.key}/usage`);
             configRef.transaction(current => (current || 0) + result.bytes);
         }
     }
-    
     return result;
 };
 
@@ -460,7 +443,8 @@ document.addEventListener('DOMContentLoaded', () => {
     return `<div id="${os.id}" class="vehicle-card status-${os.status}" data-os-id="${os.id}">${priorityIndicatorHTML}<div class="flex justify-between items-start"><div class="card-clickable-area cursor-pointer flex-grow"><p class="font-bold text-base text-gray-800">${os.placa}</p><p class="text-sm text-gray-600">${os.modelo}</p><div class="text-xs mt-1">${kmInfo}</div></div><div class="flex flex-col -mt-1 -mr-1">${nextButton}${prevButton}</div></div></div>`;
   };
 
-  const renderDeliveredColumn = () => {
+  // OTIMIZAÇÃO: Função DEBOUNCED para evitar travamento ao renderizar lista grande de entregues
+  const renderDeliveredColumn = debounce(() => {
       const list = kanbanBoard.querySelector('.vehicle-list[data-status="Entregue"]');
       if (!list) return;
       const searchInput = kanbanBoard.querySelector('.search-input-entregue');
@@ -471,26 +455,32 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       deliveredItems.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       list.innerHTML = deliveredItems.map(os => createCardHTML(os)).join('');
-  };
+  }, 300); // Espera 300ms antes de redesenhar a coluna
 
   const listenToServiceOrders = () => {
     const osRef = db.ref('serviceOrders');
     osRef.on('child_added', snapshot => {
       const os = { ...snapshot.val(), id: snapshot.key };
       allServiceOrders[os.id] = os;
+      
+      // OTIMIZAÇÃO: Para 'Entregue', usa debounce. Para outros, insere direto para não piscar
       if (os.status === 'Entregue') {
         renderDeliveredColumn();
       } else {
         const list = kanbanBoard.querySelector(`.vehicle-list[data-status="${os.status}"]`);
+        // Usar insertAdjacentHTML é mais leve que innerHTML +=
         if (list) { list.insertAdjacentHTML('beforeend', createCardHTML(os)); }
       }
-      updateAttentionPanel();
+      // Debounce para o painel de atenção também, pois ele recalcula tudo
+      debouncedUpdateAttentionPanel();
     });
+
     osRef.on('child_changed', snapshot => {
       const os = { ...snapshot.val(), id: snapshot.key };
       const oldOs = allServiceOrders[os.id];
       allServiceOrders[os.id] = os;
       const existingCard = document.getElementById(os.id);
+      
       if (oldOs && oldOs.status !== os.status) {
         if (existingCard) existingCard.remove();
         if (os.status === 'Entregue') {
@@ -512,8 +502,9 @@ document.addEventListener('DOMContentLoaded', () => {
             renderTimeline(os);
             renderMediaGallery(os);
        }
-      updateAttentionPanel();
+      debouncedUpdateAttentionPanel();
     });
+
     osRef.on('child_removed', snapshot => {
       const osId = snapshot.key;
       const removedOs = allServiceOrders[osId];
@@ -524,7 +515,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const cardToRemove = document.getElementById(osId);
           if (cardToRemove) cardToRemove.remove();
       }
-      updateAttentionPanel();
+      debouncedUpdateAttentionPanel();
     });
   };
 
@@ -544,6 +535,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
     updateLedState(vehiclesTriggeringAlert);
   };
+  
+  // OTIMIZAÇÃO: Versão debounced do painel de atenção
+  const debouncedUpdateAttentionPanel = debounce(updateAttentionPanel, 200);
 
   function sendTeamNotification(message) {
       if (!currentUser) return;
@@ -582,6 +576,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sortedCloudinaryConfigs.length > 0) {
             activeCloudinaryConfig = sortedCloudinaryConfigs[sortedCloudinaryConfigs.length - 1];
             activeCloudinaryInfo.textContent = `Híbrido: Imagens (Firebase) / Vídeos (Cloudinary: ${activeCloudinaryConfig.cloudName})`;
+        }
+        
+        // GATILHO IMPORTANTE: Recarregar galeria se estiver aberta para corrigir URLs antigas
+        if (detailsModal.classList.contains('flex')) {
+            const currentOsId = document.getElementById('logOsId').value;
+            if (currentOsId && allServiceOrders[currentOsId]) {
+                renderMediaGallery(allServiceOrders[currentOsId]);
+            }
         }
       } else {
         activeCloudinaryInfo.textContent = 'Modo Híbrido Ativo (Sem Cloudinary configurado)';
@@ -1001,6 +1003,7 @@ document.addEventListener('DOMContentLoaded', () => {
     osModal.classList.add('hidden');
   });
 
+  // UPLOAD HÍBRIDO NO SUBMIT
   logForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const submitBtn = e.target.querySelector('button[type="submit"]');
