@@ -1,5 +1,5 @@
 /* ==================================================================
-CONFIGURAÇÃO DO FIREBASE (Banco de Dados)
+CONFIGURAÇÃO DO FIREBASE (Banco de Dados + Storage)
 ==================================================================
 */
 const firebaseConfig = {
@@ -7,17 +7,18 @@ const firebaseConfig = {
   authDomain: "dashboard-oficina-pro.firebaseapp.com",
   databaseURL: "https://dashboard-oficina-pro-default-rtdb.firebaseio.com",
   projectId: "dashboard-oficina-pro",
-  storageBucket: "dashboard-oficina-pro.appspot.com",
+  storageBucket: "dashboard-oficina-pro.firebasestorage.app", // Storage Nativo
   messagingSenderId: "736157192887",
   appId: "1:736157192887:web:c23d3daade848a33d67332"
 };
 
 /* ==================================================================
-CONFIGURAÇÃO DO CLOUDINARY (Armazenamento de Mídia)
+VARIÁVEIS GLOBAIS
 ==================================================================
 */
 let activeCloudinaryConfig = null;
 let allCloudinaryConfigs = {};
+let sortedCloudinaryConfigs = []; // ARRAY ORDENADO PARA A "MÁQUINA DO TEMPO"
 
 /* ==================================================================
 SISTEMA DE NOTIFICAÇÕES
@@ -47,7 +48,7 @@ function showNotification(message, type = 'success') {
 }
 
 /* ==================================================================
-FUNÇÕES AUXILIARES
+FUNÇÕES AUXILIARES E INTELIGÊNCIA DE ARQUIVOS
 ==================================================================
 */
 function formatBytes(bytes, decimals = 2) {
@@ -59,13 +60,141 @@ function formatBytes(bytes, decimals = 2) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
+// Descobre o tipo de arquivo pela extensão ou URL
+function getMediaTypeFromUrl(url) {
+    if (!url) return 'image';
+    try {
+        // Se for Firebase Storage e tiver token de imagem
+        if (url.includes('firebasestorage')) {
+             const lowerUrl = url.toLowerCase();
+             if (lowerUrl.includes('.mp4') || lowerUrl.includes('video') || lowerUrl.match(/\.(mp4|webm|ogg)\?/i)) return 'video';
+             if (lowerUrl.includes('.pdf') || lowerUrl.match(/\.pdf\?/i)) return 'pdf';
+             return 'image';
+        }
+
+        const cleanUrl = url.split('?')[0].split('#')[0];
+        const extension = cleanUrl.split('.').pop().toLowerCase();
+        
+        if (['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'].includes(extension)) return 'video';
+        if (['pdf'].includes(extension)) return 'pdf';
+        return 'image';
+    } catch (e) {
+        return 'image';
+    }
+}
+
+// "TIME MACHINE": Reconstrói URLs antigas e valida as novas
+function reconstructUrl(item) {
+    if (!item) return '';
+    let urlToUse = item.url;
+    
+    // 1. Se não tem URL, retorna vazio
+    if (!urlToUse) return '';
+
+    // 2. Se for Firebase (Novo Sistema) ou URL completa, confia na URL
+    if (urlToUse.includes('firebasestorage') || urlToUse.startsWith('http')) {
+        return urlToUse;
+    }
+    
+    // 3. Lógica para reconstruir Cloudinary legado (só nome do arquivo)
+    if (item.timestamp && sortedCloudinaryConfigs.length > 0) {
+        const itemTime = new Date(item.timestamp).getTime();
+        let bestConfig = null;
+        
+        for (const config of sortedCloudinaryConfigs) {
+            if (config.timestamp <= itemTime) {
+                bestConfig = config;
+            } else {
+                break;
+            }
+        }
+        
+        if (!bestConfig && sortedCloudinaryConfigs.length > 0) {
+            bestConfig = sortedCloudinaryConfigs[0];
+        }
+
+        if (bestConfig && bestConfig.cloudName) {
+            const cleanPath = urlToUse.replace(/^\/+/, '');
+            // CORREÇÃO CRÍTICA: Remove o espaço do nome do banco
+            const cleanCloudName = bestConfig.cloudName.trim();
+            return `https://res.cloudinary.com/${cleanCloudName}/image/upload/${cleanPath}`;
+        }
+    }
+    
+    // Último recurso Cloudinary Ativo
+    if (activeCloudinaryConfig) {
+         const cleanPath = urlToUse.replace(/^\/+/, '');
+         return `https://res.cloudinary.com/${activeCloudinaryConfig.cloudName.trim()}/image/upload/${cleanPath}`;
+    }
+
+    return urlToUse;
+}
+
 /* ==================================================================
-LÓGICA DE UPLOAD DE ARQUIVOS (AGORA COM CLOUDINARY)
+MOTOR DE COMPRESSÃO (PARA IMAGENS NO FIREBASE)
 ==================================================================
 */
-const uploadFileToCloudinary = async (file) => {
+const compressImage = async (file) => {
+    // Só comprime imagens
+    if (!file.type.startsWith('image/')) return file;
+
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Redimensiona para HD (1280px)
+                const maxWidth = 1280; 
+                const maxHeight = 1280;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height *= maxWidth / width;
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width *= maxHeight / height;
+                        height = maxHeight;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Comprime JPEG 70%
+                canvas.toBlob((blob) => {
+                    const compressedFile = new File([blob], file.name, {
+                        type: 'image/jpeg',
+                        lastModified: Date.now(),
+                    });
+                    console.log(`Compressão: ${formatBytes(file.size)} -> ${formatBytes(compressedFile.size)}`);
+                    resolve(compressedFile);
+                }, 'image/jpeg', 0.7);
+            };
+            img.onerror = () => resolve(file);
+        };
+        reader.onerror = () => resolve(file);
+    });
+};
+
+/* ==================================================================
+LÓGICA DE UPLOAD HÍBRIDA (FIREBASE PARA FOTOS / CLOUDINARY PARA VÍDEOS)
+==================================================================
+*/
+
+// Função 1: Upload para Cloudinary (Para Vídeos/PDFs) - Mantém lógica de rodízio
+const uploadToCloudinary = async (file) => {
   if (!activeCloudinaryConfig) {
-    throw new Error('Configuração da conta de mídia não encontrada. Adicione uma no painel de admin.');
+    throw new Error('Configuração Cloudinary não encontrada para vídeo/pdf.');
   }
 
   const { cloudName, uploadPreset } = activeCloudinaryConfig;
@@ -73,32 +202,82 @@ const uploadFileToCloudinary = async (file) => {
   formData.append('file', file);
   formData.append('upload_preset', uploadPreset);
 
-  try {
-    const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
-      method: 'POST',
-      body: formData
-    });
+  const cleanCloudName = cloudName.trim();
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${cleanCloudName}/auto/upload`, {
+    method: 'POST',
+    body: formData
+  });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error.message || 'Falha no upload da mídia.');
-    }
-
-    const data = await response.json();
-    return {
-        url: data.secure_url,
-        configKey: activeCloudinaryConfig.key, // Salva a chave da config usada
-        bytes: data.bytes // Retorna o tamanho do arquivo
-    };
-  } catch (error) {
-    console.error("Erro no upload para o Cloudinary:", error);
-    throw error;
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error.message || 'Falha no upload Cloudinary.');
   }
+
+  const data = await response.json();
+  return {
+      url: data.secure_url,
+      configKey: activeCloudinaryConfig.key, // Mantém referência da conta
+      bytes: data.bytes,
+      storageType: 'cloudinary'
+  };
+};
+
+// Função 2: Upload para Firebase (Para Imagens)
+const uploadToFirebase = async (file) => {
+    const compressedFile = await compressImage(file);
+    
+    // Organiza por Ano/Mes
+    const date = new Date();
+    const folder = `imagens/${date.getFullYear()}/${date.getMonth() + 1}`;
+    // Nome único limpo
+    const cleanName = compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
+    const fileName = `${Date.now()}_${cleanName}`;
+    
+    const storageRef = firebase.storage().ref().child(`${folder}/${fileName}`);
+    
+    // Upload
+    const snapshot = await storageRef.put(compressedFile);
+    const downloadURL = await snapshot.ref.getDownloadURL();
+    
+    return {
+        url: downloadURL,
+        bytes: snapshot.totalBytes,
+        storageType: 'firebase',
+        name: file.name
+    };
+};
+
+// Função Principal: Gerente de Upload
+const processUpload = async (file, db) => {
+    let result;
+    
+    if (file.type.startsWith('image/')) {
+        // IMAGENS -> FIREBASE
+        showNotification("Otimizando e enviando para Firebase...", "info");
+        result = await uploadToFirebase(file);
+        
+        // Contador do Firebase (NOVO)
+        const fbUsageRef = db.ref('firebaseStorageUsage');
+        fbUsageRef.transaction(current => (current || 0) + result.bytes);
+        
+    } else {
+        // VÍDEOS/PDFs -> CLOUDINARY
+        showNotification("Enviando vídeo para Cloudinary...", "info");
+        result = await uploadToCloudinary(file);
+        
+        // Contador do Cloudinary (MANTIDO)
+        if (activeCloudinaryConfig && activeCloudinaryConfig.key) {
+            const configRef = db.ref(`cloudinaryConfigs/${activeCloudinaryConfig.key}/usage`);
+            configRef.transaction(current => (current || 0) + result.bytes);
+        }
+    }
+    
+    return result;
 };
 
 
 /* ==================================================================
-INICIALIZAÇÃO DO SISTEMA E DEMAIS FUNÇÕES
+INICIALIZAÇÃO DO SISTEMA
 ==================================================================
 */
 document.addEventListener('DOMContentLoaded', () => {
@@ -124,12 +303,11 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
 
   const USERS_CAN_DELETE_MEDIA = ['Thiago Ventura Valencio', 'William Barbosa', 'Augusto', 'Wilson', 'Rosely'];
-
   const STATUS_LIST = [ 'Aguardando-Mecanico', 'Em-Analise', 'Orcamento-Enviado', 'Aguardando-Aprovacao', 'Servico-Autorizado', 'Em-Execucao', 'Finalizado-Aguardando-Retirada', 'Entregue' ];
   const ATTENTION_STATUSES = { 'Aguardando-Mecanico': { label: 'AGUARDANDO MECÂNICO', color: 'yellow', blinkClass: 'blinking-aguardando' }, 'Servico-Autorizado': { label: 'SERVIÇO AUTORIZADO', color: 'green', blinkClass: 'blinking-autorizado' } };
   const LED_TRIGGER_STATUSES = ['Aguardando-Mecanico', 'Servico-Autorizado'];
 
-  // Seletores de elementos DOM
+  // Seletores
   const userScreen = document.getElementById('userScreen');
   const app = document.getElementById('app');
   const loginForm = document.getElementById('loginForm');
@@ -182,7 +360,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportReportBtn = document.getElementById('exportReportBtn');
   const arBtn = document.getElementById('arBtn');
 
-
   const formatStatus = (status) => status.replace(/-/g, ' ');
 
   const logoutUser = () => {
@@ -194,14 +371,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const now = new Date();
     const logoutTime = new Date();
     logoutTime.setHours(19, 0, 0, 0);
-
     if (now > logoutTime) {
       logoutTime.setDate(logoutTime.getDate() + 1);
     }
-
     const timeUntilLogout = logoutTime.getTime() - now.getTime();
     console.log(`Logout agendado via setTimeout para: ${logoutTime.toLocaleString('pt-BR')}`);
-
     setTimeout(() => {
       if (localStorage.getItem('currentUserSession')) {
         showNotification('Sessão encerrada por segurança.', 'success');
@@ -211,12 +385,8 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const loginUser = (user) => {
-    const sessionData = {
-      user: user,
-      loginTime: new Date().toISOString()
-    };
+    const sessionData = { user: user, loginTime: new Date().toISOString() };
     localStorage.setItem('currentUserSession', JSON.stringify(sessionData));
-    
     currentUser = user;
     document.getElementById('currentUserName').textContent = user.name;
     userScreen.classList.add('hidden');
@@ -228,9 +398,7 @@ document.addEventListener('DOMContentLoaded', () => {
     listenToCloudinaryConfigs(); 
     scheduleDailyLogout();
 
-    if (arBtn) {
-        arBtn.classList.remove('hidden');
-    }
+    if (arBtn) arBtn.classList.remove('hidden');
 
     if (user.name === 'Thiago Ventura Valencio') {
       adminBtn.classList.remove('hidden');
@@ -240,25 +408,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const initializeLoginScreen = () => {
     const storedSession = localStorage.getItem('currentUserSession');
-    
     if (storedSession) {
         const sessionData = JSON.parse(storedSession);
         const loginTime = new Date(sessionData.loginTime);
-
         const now = new Date();
         const lastCutoff = new Date();
         lastCutoff.setHours(19, 0, 0, 0);
-
-        if (now < lastCutoff) {
-            lastCutoff.setDate(lastCutoff.getDate() - 1);
-        }
+        if (now < lastCutoff) lastCutoff.setDate(lastCutoff.getDate() - 1);
 
         if (loginTime < lastCutoff) {
             console.log("Sessão expirada. Realizando logout forçado.");
             logoutUser();
             return;
         }
-        
         loginUser(sessionData.user);
         return;
     }
@@ -400,33 +562,29 @@ document.addEventListener('DOMContentLoaded', () => {
       });
   }
 
-  // CORREÇÃO AQUI: Garante que a última config seja selecionada corretamente respeitando a ordem do banco
+  // --- ESCUTAR CONFIGURAÇÕES DO CLOUDINARY (Lógica Time Machine - LEITURA) ---
   const listenToCloudinaryConfigs = () => {
     const configRef = db.ref('cloudinaryConfigs').orderByChild('timestamp');
     configRef.on('value', snapshot => {
       if (snapshot.exists()) {
         const configs = snapshot.val();
-        // Atualiza a variável global que estava sendo ignorada
         allCloudinaryConfigs = configs;
         
-        let latestConfig = null;
-        let latestKey = null;
-
-        // Itera na ordem correta garantida pelo Firebase
+        sortedCloudinaryConfigs = [];
         snapshot.forEach(childSnapshot => {
-            latestConfig = childSnapshot.val();
-            latestKey = childSnapshot.key;
+            const data = childSnapshot.val();
+            if (data.cloudName) data.cloudName = data.cloudName.trim(); // Limpeza de espaço
+            sortedCloudinaryConfigs.push({ ...data, key: childSnapshot.key });
         });
-
-        if (latestConfig) {
-            activeCloudinaryConfig = { ...latestConfig, key: latestKey };
-            const usageText = latestConfig.usage ? ` | Enviado: ${formatBytes(latestConfig.usage)}` : ' | Enviado: 0 B';
-            activeCloudinaryInfo.textContent = `Cloud Name: ${activeCloudinaryConfig.cloudName} | Preset: ${activeCloudinaryConfig.uploadPreset}${usageText}`;
-        }
         
+        sortedCloudinaryConfigs.sort((a, b) => a.timestamp - b.timestamp);
+
+        if (sortedCloudinaryConfigs.length > 0) {
+            activeCloudinaryConfig = sortedCloudinaryConfigs[sortedCloudinaryConfigs.length - 1];
+            activeCloudinaryInfo.textContent = `Híbrido: Imagens (Firebase) / Vídeos (Cloudinary: ${activeCloudinaryConfig.cloudName})`;
+        }
       } else {
-        activeCloudinaryInfo.textContent = 'Nenhuma conta configurada. Adicione uma para fazer uploads.';
-        showNotification('ATENÇÃO: Nenhuma conta de mídia configurada. Os uploads não funcionarão.', 'error');
+        activeCloudinaryInfo.textContent = 'Modo Híbrido Ativo (Sem Cloudinary configurado)';
       }
     });
   };
@@ -567,56 +725,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // CORREÇÃO AQUI: Lógica robusta para exibir imagens antigas (Legacy) + TRATAMENTO DE ERRO 401
+  // --- RENDERIZAÇÃO DE MÍDIA HÍBRIDA (FIREBASE + CLOUDINARY) ---
   const renderMediaGallery = (os) => {
     const media = os.media || {};
     const mediaEntries = Object.entries(media);
     
-    // Preparar lista para Lightbox com tratamento de erro
     lightboxMedia = mediaEntries.map(entry => {
         const item = entry[1];
-        // Fallback: Se não tiver tipo, assume imagem se tiver URL
-        const type = item.type || (item.url ? 'image/jpeg' : ''); 
-        return { ...item, type: type, key: entry[0] };
-    }).filter(item => item.url); // Só inclui se tiver URL válida
+        if (!item) return null;
+        
+        // Reconstrói URL (Time Machine)
+        const fixedUrl = reconstructUrl(item);
+        const type = item.type || getMediaTypeFromUrl(fixedUrl);
+        
+        return {...item, url: fixedUrl, type: type, key: entry[0]};
+    }).filter(item => item !== null && item.url);
     
-    thumbnailGrid.innerHTML = mediaEntries.map(([key, item], index) => {
-        // Se o item for nulo, pula
-        if (!item) return '';
-        
-        // CORREÇÃO CRÍTICA: Se não tiver 'type', tentamos inferir ou permitimos renderizar se tiver URL
-        // Itens antigos no banco podem não ter a propriedade 'type' salva
-        const hasType = !!item.type;
-        const hasUrl = !!item.url;
-        
-        if (!hasType && !hasUrl) return '';
-
-        // Determinar tipo (Compatibilidade com dados antigos)
-        let isImage = false;
-        let isVideo = false;
-        let isPdf = false;
-
-        if (hasType) {
-            isImage = item.type.startsWith('image/');
-            isVideo = item.type.startsWith('video/');
-            isPdf = item.type === 'application/pdf';
-        } else if (hasUrl) {
-            // Se não tem tipo, assume que é imagem (comportamento padrão para legado)
-            // Ou verifica extensão simples
-            isImage = true; 
-        }
+    thumbnailGrid.innerHTML = lightboxMedia.map((item, index) => {
+        if (!item.url) return '';
 
         const canDelete = currentUser && USERS_CAN_DELETE_MEDIA.includes(currentUser.name);
         const deleteButtonHTML = canDelete 
-            ? `<button class="delete-media-btn" data-os-id="${os.id}" data-media-key="${key}" title="Excluir Mídia"><i class='bx bxs-trash'></i></button>` 
+            ? `<button class="delete-media-btn" data-os-id="${os.id}" data-media-key="${item.key}" title="Excluir Mídia"><i class='bx bxs-trash'></i></button>` 
             : '';
 
+        const isImage = item.type.startsWith('image/');
+        const isVideo = item.type.startsWith('video/');
+        const isPdf = item.type === 'application/pdf';
+        
         let thumbnailContent = `<i class='bx bx-file text-4xl text-gray-500'></i>`;
         
         if (isImage) { 
-            const fallbackHTML = "<div class='flex flex-col items-center justify-center w-full h-full bg-gray-100 text-gray-400 p-2 text-center'><i class='bx bxs-error-circle text-2xl mb-1 text-red-300'></i><span class='text-[10px] leading-tight'>Indisponível (Conta Expirada)</span></div>";
-            // Adicionado onerror para capturar 401 e mostrar mensagem amigável
-            thumbnailContent = `<img src="${item.url}" alt="Mídia" loading="lazy" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='${fallbackHTML}'">`; 
+            // CORREÇÃO CRÍTICA: referrerPolicy para Cloudinary antigo + fallback
+            thumbnailContent = `<img src="${item.url}" alt="Mídia" loading="lazy" class="w-full h-full object-cover" referrerpolicy="no-referrer" onerror="this.onerror=null;this.parentElement.innerHTML='<div class=\\'flex flex-col items-center justify-center h-full text-gray-400\\'><i class=\\'bx bxs-error text-2xl\\'></i><span class=\\'text-xs\\'>Indisponível</span></div>';">`; 
         } else if (isVideo) { 
             thumbnailContent = `<i class='bx bx-play-circle text-4xl text-blue-500'></i>`; 
         } else if (isPdf) { 
@@ -649,13 +790,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
     const media = os.media ? Object.values(os.media) : [];
     
-    // Filtro para impressão também precisa considerar itens sem 'type'
-    const photos = media.filter(item => {
-        if (item.type) return item.type.startsWith('image/');
-        return !!item.url; // Assume imagem se tiver URL e sem tipo
-    });
+    // Filtro para impressão
+    const photos = media.map(item => {
+        const fixedUrl = reconstructUrl(item);
+        const type = item.type || getMediaTypeFromUrl(fixedUrl);
+        return { ...item, url: fixedUrl, type: type };
+    }).filter(item => item.url && item.type.startsWith('image/'));
 
-    const photosHtml = photos.length > 0 ? `<div class="section"><h2>Fotos Anexadas</h2><div class="photo-gallery">${photos.map(photo => `<img src="${photo.url}" alt="Foto da O.S.">`).join('')}</div></div>` : '';
+    const photosHtml = photos.length > 0 ? `<div class="section"><h2>Fotos Anexadas</h2><div class="photo-gallery">${photos.map(photo => `<img src="${photo.url}" alt="Foto da O.S." referrerpolicy="no-referrer">`).join('')}</div></div>` : '';
     const printHtml = `<html><head><title>Ordem de Serviço - ${os.placa}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;margin:0;padding:20px;color:#333}.container{max-width:800px;margin:auto}.header{text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px}.header h1{margin:0;font-size:24px}.header p{margin:5px 0}.section{margin-bottom:20px;border:1px solid #ccc;border-radius:8px;padding:15px;page-break-inside:avoid}.section h2{margin-top:0;font-size:18px;border-bottom:1px solid #eee;padding-bottom:5px;margin-bottom:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid-item strong{display:block;color:#555}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:14px}th{background-color:#f2f2f2}.total{text-align:right;font-size:18px;font-weight:bold;margin-top:20px}.footer{text-align:center;margin-top:50px;padding-top:20px;border-top:1px solid #ccc}.signature{margin-top:60px}.signature-line{border-bottom:1px solid #000;width:300px;margin:0 auto}.signature p{margin-top:5px;font-size:14px}.photo-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px}.photo-gallery img{width:100%;height:auto;border:1px solid #ddd;border-radius:4px}.dev-signature{margin-top:40px;font-size:12px;color:#888;text-align:center}@media print{body{padding:10px}.no-print{display:none}}</style></head><body><div class="container"><div class="header"><h1>CHEVRON Bosch Car Service</h1><p>Ordem de Serviço</p></div><div class="section"><h2>Detalhes da O.S.</h2><div class="grid"><div class="grid-item"><strong>Placa:</strong> ${os.placa}</div><div class="grid-item"><strong>Modelo:</strong> ${os.modelo}</div><div class="grid-item"><strong>Cliente:</strong> ${os.cliente}</div><div class="grid-item"><strong>Telefone:</strong> ${os.telefone||"N/A"}</div><div class="grid-item"><strong>KM:</strong> ${os.km?new Intl.NumberFormat("pt-BR").format(os.km):"N/A"}</div><div class="grid-item"><strong>Data de Abertura:</strong> ${formatDate(os.createdAt)}</div><div class="grid-item"><strong>Atendente:</strong> ${os.responsible||"N/A"}</div></div></div>${os.observacoes?`<div class="section"><h2>Queixa do Cliente / Observações Iniciais</h2><p style="white-space: pre-wrap;">${os.observacoes}</p></div>`:""}<div class="section"><h2>Histórico de Serviços e Peças</h2><table><thead><tr><th>Data/Hora</th><th>Usuário</th><th>Descrição</th><th>Peças</th><th style="text-align: right;">Valor</th></tr></thead><tbody>${timelineHtml||'<tr><td colspan="5" style="text-align: center;">Nenhum registro no histórico.</td></tr>'}</tbody></table><div class="total">Total: R$ ${totalValue.toFixed(2)}</div></div>${photosHtml}<div class="footer"><div class="signature"><div class="signature-line"></div><p>Assinatura do Cliente</p></div><p>Documento gerado em: ${new Date().toLocaleString("pt-BR")}</p><div class="dev-signature">Desenvolvido com 🤖 - por thIAguinho Soluções</div></div></div><script>window.onload=function(){window.print();setTimeout(function(){window.close()},100)}<\/script></body></html>`;
     const printWindow = window.open('', '_blank');
     printWindow.document.write(printHtml);
@@ -666,16 +808,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!lightboxMedia || lightboxMedia.length === 0) return;
     currentLightboxIndex = index;
     const media = lightboxMedia[index];
-    if (!media) return; // Proteção extra
-
-    // Fallback se não tiver tipo, mas tiver URL
-    const type = media.type || 'image/jpeg';
+    if (!media) return; 
     
+    const type = media.type || 'image/jpeg';
+
     if (type === 'application/pdf') { window.open(media.url, '_blank'); return; }
     
     const lightboxContent = document.getElementById('lightbox-content');
     if (type.startsWith('image/')) {
-      lightboxContent.innerHTML = `<img src="${media.url}" alt="Imagem" class="max-w-full max-h-full object-contain">`;
+      // CORREÇÃO TAMBÉM NO LIGHTBOX: referrerpolicy
+      lightboxContent.innerHTML = `<img src="${media.url}" alt="Imagem" class="max-w-full max-h-full object-contain" referrerpolicy="no-referrer">`;
     } else {
       lightboxContent.innerHTML = `<video src="${media.url}" controls class="max-w-full max-h-full"></video>`;
     }
@@ -871,34 +1013,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const logEntry = { timestamp: new Date().toISOString(), user: currentUser.name, description: description, type: 'log', parts: parts || null, value: value || null };
     try {
         if (filesToUpload && filesToUpload.length > 0) {
-            submitBtn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> Enviando mídia...`;
-            const mediaPromises = filesToUpload.map(file =>
-                uploadFileToCloudinary(file).then(result => ({
-                    type: file.type,
-                    url: result.url,
-                    configKey: result.configKey,
-                    name: file.name,
-                    timestamp: new Date().toISOString(),
-                    bytes: result.bytes // Passa os bytes para o próximo passo
-                }))
-            );
+            submitBtn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> Processando mídia...`;
+            
+            // Lógica de Upload Híbrida
+            const mediaPromises = filesToUpload.map(file => processUpload(file, db).then(result => ({
+                type: file.type,
+                url: result.url,
+                name: file.name,
+                timestamp: new Date().toISOString(),
+                bytes: result.bytes,
+                storage: result.storageType || 'unknown'
+            })));
+            
             const mediaResults = await Promise.all(mediaPromises);
             
-            // SOMAR USO E SALVAR NO BANCO
-            let totalBytesUploaded = 0;
             const mediaRef = db.ref(`serviceOrders/${osId}/media`);
             mediaResults.forEach(result => {
                 mediaRef.push().set(result);
-                if (result.bytes) totalBytesUploaded += result.bytes;
             });
-
-            // Atualiza o contador de uso na config ativa
-            if (totalBytesUploaded > 0 && activeCloudinaryConfig && activeCloudinaryConfig.key) {
-                const configRef = db.ref(`cloudinaryConfigs/${activeCloudinaryConfig.key}/usage`);
-                configRef.transaction(currentUsage => {
-                    return (currentUsage || 0) + totalBytesUploaded;
-                });
-            }
         }
         const logsRef = db.ref(`serviceOrders/${osId}/logs`);
         const newLogRef = logsRef.push();
@@ -1093,6 +1225,37 @@ document.addEventListener('DOMContentLoaded', () => {
     cloudinaryForm.reset();
     adminModal.classList.remove('hidden');
     adminModal.classList.add('flex');
+    
+    // --- LÓGICA DO CONTADOR PARA O THIAGO ---
+    const statsContainer = document.getElementById('activeCloudinaryInfo');
+    statsContainer.innerHTML = '<p>Carregando estatísticas...</p>';
+
+    // 1. Pega uso do Firebase
+    db.ref('firebaseStorageUsage').once('value').then(snap => {
+        const fbBytes = snap.val() || 0;
+
+        // 2. Calcula uso total do Cloudinary (Soma de todas as contas)
+        let cloudBytes = 0;
+        Object.values(allCloudinaryConfigs).forEach(conf => {
+            if (conf.usage) cloudBytes += conf.usage;
+        });
+
+        // 3. Monta o HTML
+        let html = `<div class="space-y-2 text-sm text-gray-700">`;
+        html += `<div class="flex justify-between border-b pb-1"><span><strong>Firebase (Imagens):</strong></span> <span>${formatBytes(fbBytes)}</span></div>`;
+        html += `<div class="flex justify-between border-b pb-1"><span><strong>Cloudinary Total (Vídeos):</strong></span> <span>${formatBytes(cloudBytes)}</span></div>`;
+        
+        if (activeCloudinaryConfig) {
+            const activeUsage = activeCloudinaryConfig.usage || 0;
+             html += `<div class="mt-2 text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                <p><strong>Conta Ativa:</strong> ${activeCloudinaryConfig.cloudName}</p>
+                <p><strong>Uso desta conta:</strong> ${formatBytes(activeUsage)}</p>
+             </div>`;
+        }
+        html += `</div>`;
+
+        statsContainer.innerHTML = html;
+    });
   });
 
   cloudinaryForm.addEventListener('submit', (e) => {
