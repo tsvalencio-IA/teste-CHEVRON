@@ -275,13 +275,14 @@ document.addEventListener('DOMContentLoaded', () => {
   let appStartTime = Date.now();
 
   const USERS = [
-    { name: 'Augusto', role: 'Gestor', password: 'jose' },
+    { name: 'Augusto', role: 'Gestor', password: 'semsenha' },
     { name: 'Wilson', role: 'Gestor', password: 'wilson' },
     { name: 'Rosely', role: 'Gestor', password: 'rose' },
     { name: 'William Barbosa', role: 'Atendente', password: '2312' },
     { name: 'Thiago Ventura Valencio', role: 'Atendente', password: '1940' },
     { name: 'Fernando', role: 'Mecânico', password: 'fernando' },
     { name: 'Gustavo', role: 'Mecânico', password: 'gustavo' },
+    { name: 'Matheus', role: 'Mecânico', password: 'matheus' },
     { name: 'Marcelo', role: 'Mecânico', password: 'marcelo' }
   ];
 
