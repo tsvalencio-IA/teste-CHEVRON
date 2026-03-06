@@ -282,7 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { name: 'Thiago Ventura Valencio', role: 'Atendente', password: '1940' },
     { name: 'Fernando', role: 'Mecânico', password: 'fernando' },
     { name: 'Gustavo', role: 'Mecânico', password: 'gustavo' },
-    { name: 'Marcelo', role: 'Mecânico', password: 'marcelo' }
+    { name: 'Matheus', role: 'Mecânico', password: 'matheus' }
   ];
 
   const USERS_CAN_DELETE_MEDIA = ['Thiago Ventura Valencio', 'William Barbosa', 'Augusto', 'Wilson', 'Rosely'];
