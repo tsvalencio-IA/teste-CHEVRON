@@ -282,6 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { name: 'Thiago Ventura Valencio', role: 'Atendente', password: '1940' },
     { name: 'Fernando', role: 'Mecânico', password: 'fernando' },
     { name: 'Gustavo', role: 'Mecânico', password: 'gustavo' },
+    { name: 'Gustavo', role: 'ALBERTO', password: '1979' },
     { name: 'Matheus', role: 'Mecânico', password: 'matheus' }
   ];
 
