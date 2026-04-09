@@ -134,7 +134,7 @@ function reconstructUrl(item) {
 }
 
 /* ==================================================================
-MOTOR DE COMPRESSÃO (PARA IMAGENS)
+MOTOR DE COMPRESSÃO 
 ==================================================================
 */
 const compressImage = async (file) => {
@@ -220,7 +220,7 @@ const uploadToCloudinary = async (file) => {
   };
 };
 
-// MANTIDA PARA NÃO QUEBRAR LÓGICAS (Função original preservada)
+// MANTIDA INTACTA: Apenas por segurança estrutural do sistema legado
 const uploadToFirebase = async (file) => {
     const compressedFile = await compressImage(file);
     const date = new Date();
@@ -240,25 +240,23 @@ const uploadToFirebase = async (file) => {
     };
 };
 
-// O PEDÁGIO CENTRAL (Onde a mágica do roteamento acontece)
+// O PEDÁGIO CENTRAL: Agora enviamos TUDO (Fotos e Vídeos) para o Cloudinary
 const processUpload = async (file, db) => {
     let result;
-    let fileToUpload = file;
     
-    // 1. Mantemos a compressão de imagem ativa para economizar espaço no Cloudinary!
     if (file.type.startsWith('image/')) {
         showNotification("Otimizando imagem...", "info");
-        fileToUpload = await compressImage(file);
+        const compressedFile = await compressImage(file);
+        showNotification("Enviando imagem para Cloudinary...", "info");
+        result = await uploadToCloudinary(compressedFile);
+    } else {
+        showNotification("Enviando arquivo para Cloudinary...", "info");
+        result = await uploadToCloudinary(file);
     }
     
-    // 2. AGORA TUDO VAI PARA O CLOUDINARY (Imagens, Vídeos e PDFs)
-    showNotification("Enviando mídia para o Cloudinary...", "info");
-    result = await uploadToCloudinary(fileToUpload);
-    
-    // 3. REGISTRO PERSISTENTE DE BYTES (Para o Gestor não ter surpresas)
+    // ATUALIZA O USO DO CLOUDINARY
     if (activeCloudinaryConfig && activeCloudinaryConfig.key) {
         const configRef = db.ref(`cloudinaryConfigs/${activeCloudinaryConfig.key}/usage`);
-        // A transação garante que os bytes sejam somados de forma segura no banco, nunca resetando.
         configRef.transaction(current => (current || 0) + result.bytes);
     }
     
@@ -462,7 +460,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       deliveredItems.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       list.innerHTML = deliveredItems.map(os => createCardHTML(os)).join('');
-  }, 300); 
+  }, 300);
 
   const listenToServiceOrders = () => {
     const osRef = db.ref('serviceOrders');
@@ -559,7 +557,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
   }
 
-  // --- ESCUTAR CONFIGURAÇÕES DO CLOUDINARY E GERENCIAR LIMITE ---
+  // --- ESCUTAR CONFIGURAÇÕES DO CLOUDINARY (Com limite de 22GB) ---
   const listenToCloudinaryConfigs = () => {
     const configRef = db.ref('cloudinaryConfigs').orderByChild('timestamp');
     configRef.on('value', snapshot => {
@@ -568,12 +566,12 @@ document.addEventListener('DOMContentLoaded', () => {
         allCloudinaryConfigs = configs;
         
         sortedCloudinaryConfigs = [];
-        let totalCloudinaryBytes = 0; // Somador de bytes
+        let totalCloudinaryBytes = 0; // Somador de bytes do Cloudinary
 
         snapshot.forEach(childSnapshot => {
             const data = childSnapshot.val();
             if (data.cloudName) data.cloudName = data.cloudName.trim();
-            if (data.usage) totalCloudinaryBytes += data.usage; // Soma o uso de todas as contas
+            if (data.usage) totalCloudinaryBytes += data.usage; 
             sortedCloudinaryConfigs.push({ ...data, key: childSnapshot.key });
         });
         
@@ -583,20 +581,18 @@ document.addEventListener('DOMContentLoaded', () => {
             activeCloudinaryConfig = sortedCloudinaryConfigs[sortedCloudinaryConfigs.length - 1];
             activeCloudinaryInfo.textContent = `Nuvem Ativa: Cloudinary (${activeCloudinaryConfig.cloudName})`;
         }
-
-        // ==========================================
-        // SISTEMA DE ALERTA DE CAPACIDADE (22 GB)
-        // ==========================================
-        const LIMIT_22GB = 22 * 1024 * 1024 * 1024; // 22 GB exatos
-        const LIMIT_21GB = 21 * 1024 * 1024 * 1024; // Alerta preventivo (21 GB)
+        
+        // LIMITES DO GESTOR
+        const LIMIT_22GB = 22 * 1024 * 1024 * 1024;
+        const LIMIT_21GB = 21 * 1024 * 1024 * 1024;
 
         if (totalCloudinaryBytes >= LIMIT_22GB) {
-            showNotification("🚨 ALERTA CRÍTICO: Limite de 22 GB do Cloudinary atingido! Adicione uma nova conta IMEDIATAMENTE no Painel Gestor.", "error");
+            showNotification("🚨 ALERTA CRÍTICO: Limite de 22 GB do Cloudinary atingido! Troque a conta.", "error");
         } else if (totalCloudinaryBytes >= LIMIT_21GB) {
-            showNotification("⚠️ AVISO GESTOR: O armazenamento Cloudinary ultrapassou 21 GB. Prepare uma nova conta em breve.", "error");
+            showNotification("⚠️ AVISO GESTOR: O Cloudinary ultrapassou 21 GB. Prepare nova conta.", "error");
         }
         
-        // Gatilho: Recarregar galeria se estiver aberta para corrigir URLs antigas
+        // Recarregar galeria para corrigir URLs
         if (detailsModal.classList.contains('flex')) {
             const currentOsId = document.getElementById('logOsId').value;
             if (currentOsId && allServiceOrders[currentOsId]) {
@@ -745,6 +741,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // MANTIDA INTACTA A PESQUISA DA GALERIA
   const renderMediaGallery = (os) => {
     const media = os.media || {};
     const mediaEntries = Object.entries(media);
@@ -1017,7 +1014,6 @@ document.addEventListener('DOMContentLoaded', () => {
     osModal.classList.add('hidden');
   });
 
-  // UPLOAD DO SUBMIT (Manda os arquivos processados)
   logForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const submitBtn = e.target.querySelector('button[type="submit"]');
@@ -1237,20 +1233,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // TELA DO GESTOR COM ESTATÍSTICAS
   adminBtn.addEventListener('click', () => {
     cloudinaryForm.reset();
     adminModal.classList.remove('hidden');
     adminModal.classList.add('flex');
     
-    // --- LÓGICA DO CONTADOR PARA O GESTOR NO PAINEL ---
     const statsContainer = document.getElementById('activeCloudinaryInfo');
     statsContainer.innerHTML = '<p>Carregando estatísticas...</p>';
 
-    // Pega uso do Firebase (Legado)
     db.ref('firebaseStorageUsage').once('value').then(snap => {
         const fbBytes = snap.val() || 0;
 
-        // Calcula uso total do Cloudinary (Soma de todas as contas)
         let cloudBytes = 0;
         Object.values(allCloudinaryConfigs).forEach(conf => {
             if (conf.usage) cloudBytes += conf.usage;
@@ -1259,10 +1253,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const limit22GB = 22 * 1024 * 1024 * 1024;
         const limitClass = cloudBytes >= limit22GB ? 'text-red-600 font-bold' : '';
 
-        // Monta o HTML exibindo os limites
         let html = `<div class="space-y-2 text-sm text-gray-700">`;
-        html += `<div class="flex justify-between border-b pb-1"><span><strong>Firebase (Arquivos Antigos):</strong></span> <span>${formatBytes(fbBytes)}</span></div>`;
-        html += `<div class="flex justify-between border-b pb-1"><span><strong>Cloudinary Total (Fotos/Vídeos):</strong></span> <span class="${limitClass}">${formatBytes(cloudBytes)} / 22 GB</span></div>`;
+        html += `<div class="flex justify-between border-b pb-1"><span><strong>Firebase (Antigo):</strong></span> <span>${formatBytes(fbBytes)}</span></div>`;
+        html += `<div class="flex justify-between border-b pb-1"><span><strong>Cloudinary Total (Atual):</strong></span> <span class="${limitClass}">${formatBytes(cloudBytes)} / 22 GB</span></div>`;
         
         if (activeCloudinaryConfig) {
             const activeUsage = activeCloudinaryConfig.usage || 0;
@@ -1299,7 +1292,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Listener unificado para edições e exportação no modal de detalhes
   detailsModal.addEventListener('click', (e) => {
     const exportBtn = e.target.closest('#exportOsBtn');
     if (exportBtn) {
