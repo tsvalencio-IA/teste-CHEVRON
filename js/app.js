@@ -134,7 +134,7 @@ function reconstructUrl(item) {
 }
 
 /* ==================================================================
-MOTOR DE COMPRESSÃO 
+MOTOR DE COMPRESSÃO (PARA IMAGENS NO FIREBASE)
 ==================================================================
 */
 const compressImage = async (file) => {
@@ -187,7 +187,7 @@ const compressImage = async (file) => {
 };
 
 /* ==================================================================
-LÓGICA DE UPLOAD (ATUALIZADA: TUDO NO CLOUDINARY)
+LÓGICA DE UPLOAD HÍBRIDA
 ==================================================================
 */
 const uploadToCloudinary = async (file) => {
@@ -220,7 +220,6 @@ const uploadToCloudinary = async (file) => {
   };
 };
 
-// MANTIDA INTACTA: Apenas por segurança estrutural do sistema legado
 const uploadToFirebase = async (file) => {
     const compressedFile = await compressImage(file);
     const date = new Date();
@@ -240,21 +239,20 @@ const uploadToFirebase = async (file) => {
     };
 };
 
-// O PEDÁGIO CENTRAL: Agora enviamos TUDO (Fotos e Vídeos) para o Cloudinary
 const processUpload = async (file, db) => {
     let result;
     
+    // Agora enviamos TUDO para o Cloudinary, mas mantemos a compressão de imagens
     if (file.type.startsWith('image/')) {
-        showNotification("Otimizando imagem...", "info");
+        showNotification("Otimizando e enviando para Cloudinary...", "info");
         const compressedFile = await compressImage(file);
-        showNotification("Enviando imagem para Cloudinary...", "info");
         result = await uploadToCloudinary(compressedFile);
     } else {
         showNotification("Enviando arquivo para Cloudinary...", "info");
         result = await uploadToCloudinary(file);
     }
     
-    // ATUALIZA O USO DO CLOUDINARY
+    // Atualiza a cota de uso da conta do Cloudinary ativa
     if (activeCloudinaryConfig && activeCloudinaryConfig.key) {
         const configRef = db.ref(`cloudinaryConfigs/${activeCloudinaryConfig.key}/usage`);
         configRef.transaction(current => (current || 0) + result.bytes);
@@ -449,6 +447,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return `<div id="${os.id}" class="vehicle-card status-${os.status}" data-os-id="${os.id}">${priorityIndicatorHTML}<div class="flex justify-between items-start"><div class="card-clickable-area cursor-pointer flex-grow"><p class="font-bold text-base text-gray-800">${os.placa}</p><p class="text-sm text-gray-600">${os.modelo}</p><div class="text-xs mt-1">${kmInfo}</div></div><div class="flex flex-col -mt-1 -mr-1">${nextButton}${prevButton}</div></div></div>`;
   };
 
+  // OTIMIZAÇÃO: Função DEBOUNCED para evitar travamento ao renderizar lista grande de entregues
   const renderDeliveredColumn = debounce(() => {
       const list = kanbanBoard.querySelector('.vehicle-list[data-status="Entregue"]');
       if (!list) return;
@@ -460,7 +459,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       deliveredItems.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       list.innerHTML = deliveredItems.map(os => createCardHTML(os)).join('');
-  }, 300);
+  }, 300); // Espera 300ms antes de redesenhar a coluna
 
   const listenToServiceOrders = () => {
     const osRef = db.ref('serviceOrders');
@@ -468,12 +467,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const os = { ...snapshot.val(), id: snapshot.key };
       allServiceOrders[os.id] = os;
       
+      // OTIMIZAÇÃO: Para 'Entregue', usa debounce. Para outros, insere direto para não piscar
       if (os.status === 'Entregue') {
         renderDeliveredColumn();
       } else {
         const list = kanbanBoard.querySelector(`.vehicle-list[data-status="${os.status}"]`);
+        // Usar insertAdjacentHTML é mais leve que innerHTML +=
         if (list) { list.insertAdjacentHTML('beforeend', createCardHTML(os)); }
       }
+      // Debounce para o painel de atenção também, pois ele recalcula tudo
       debouncedUpdateAttentionPanel();
     });
 
@@ -538,6 +540,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateLedState(vehiclesTriggeringAlert);
   };
   
+  // OTIMIZAÇÃO: Versão debounced do painel de atenção
   const debouncedUpdateAttentionPanel = debounce(updateAttentionPanel, 200);
 
   function sendTeamNotification(message) {
@@ -557,7 +560,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
   }
 
-  // --- ESCUTAR CONFIGURAÇÕES DO CLOUDINARY (Com limite de 22GB) ---
+  // --- ESCUTAR CONFIGURAÇÕES DO CLOUDINARY (Lógica Time Machine - LEITURA e AVISO GESTOR) ---
   const listenToCloudinaryConfigs = () => {
     const configRef = db.ref('cloudinaryConfigs').orderByChild('timestamp');
     configRef.on('value', snapshot => {
@@ -566,12 +569,12 @@ document.addEventListener('DOMContentLoaded', () => {
         allCloudinaryConfigs = configs;
         
         sortedCloudinaryConfigs = [];
-        let totalCloudinaryBytes = 0; // Somador de bytes do Cloudinary
-
+        let totalCloudinaryBytes = 0; // Somador de limite (Nova Lógica do Gestor)
+        
         snapshot.forEach(childSnapshot => {
             const data = childSnapshot.val();
-            if (data.cloudName) data.cloudName = data.cloudName.trim();
-            if (data.usage) totalCloudinaryBytes += data.usage; 
+            if (data.cloudName) data.cloudName = data.cloudName.trim(); // Limpeza de espaço
+            if (data.usage) totalCloudinaryBytes += data.usage; // Soma o uso
             sortedCloudinaryConfigs.push({ ...data, key: childSnapshot.key });
         });
         
@@ -582,17 +585,16 @@ document.addEventListener('DOMContentLoaded', () => {
             activeCloudinaryInfo.textContent = `Nuvem Ativa: Cloudinary (${activeCloudinaryConfig.cloudName})`;
         }
         
-        // LIMITES DO GESTOR
+        // GATILHOS DE ALERTA DO GESTOR (21GB E 22GB)
         const LIMIT_22GB = 22 * 1024 * 1024 * 1024;
         const LIMIT_21GB = 21 * 1024 * 1024 * 1024;
-
         if (totalCloudinaryBytes >= LIMIT_22GB) {
             showNotification("🚨 ALERTA CRÍTICO: Limite de 22 GB do Cloudinary atingido! Troque a conta.", "error");
         } else if (totalCloudinaryBytes >= LIMIT_21GB) {
             showNotification("⚠️ AVISO GESTOR: O Cloudinary ultrapassou 21 GB. Prepare nova conta.", "error");
         }
         
-        // Recarregar galeria para corrigir URLs
+        // GATILHO IMPORTANTE: Recarregar galeria se estiver aberta para corrigir URLs antigas
         if (detailsModal.classList.contains('flex')) {
             const currentOsId = document.getElementById('logOsId').value;
             if (currentOsId && allServiceOrders[currentOsId]) {
@@ -741,7 +743,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // MANTIDA INTACTA A PESQUISA DA GALERIA
+  // --- RENDERIZAÇÃO DE MÍDIA HÍBRIDA (FIREBASE + CLOUDINARY) ---
   const renderMediaGallery = (os) => {
     const media = os.media || {};
     const mediaEntries = Object.entries(media);
@@ -750,7 +752,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const item = entry[1];
         if (!item) return null;
         
-        // Reconstrói URL mantendo a pesquisa ao Firebase das antigas
+        // Reconstrói URL (Time Machine)
         const fixedUrl = reconstructUrl(item);
         const type = item.type || getMediaTypeFromUrl(fixedUrl);
         
@@ -765,13 +767,15 @@ document.addEventListener('DOMContentLoaded', () => {
             ? `<button class="delete-media-btn" data-os-id="${os.id}" data-media-key="${item.key}" title="Excluir Mídia"><i class='bx bxs-trash'></i></button>` 
             : '';
 
-        const isImage = item.type.startsWith('image/');
-        const isVideo = item.type.startsWith('video/');
-        const isPdf = item.type === 'application/pdf';
+        // FIX DA PERÍCIA: Aceita tanto "image/" quanto a palavra exata "image"
+        const isImage = item.type.startsWith('image/') || item.type === 'image';
+        const isVideo = item.type.startsWith('video/') || item.type === 'video';
+        const isPdf = item.type === 'application/pdf' || item.type === 'pdf';
         
         let thumbnailContent = `<i class='bx bx-file text-4xl text-gray-500'></i>`;
         
         if (isImage) { 
+            // CORREÇÃO CRÍTICA: referrerPolicy para Cloudinary antigo + fallback
             thumbnailContent = `<img src="${item.url}" alt="Mídia" loading="lazy" class="w-full h-full object-cover" referrerpolicy="no-referrer" onerror="this.onerror=null;this.parentElement.innerHTML='<div class=\\'flex flex-col items-center justify-center h-full text-gray-400\\'><i class=\\'bx bxs-error text-2xl\\'></i><span class=\\'text-xs\\'>Indisponível</span></div>';">`; 
         } else if (isVideo) { 
             thumbnailContent = `<i class='bx bx-play-circle text-4xl text-blue-500'></i>`; 
@@ -805,6 +809,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
     const media = os.media ? Object.values(os.media) : [];
     
+    // Filtro para impressão
     const photos = media.map(item => {
         const fixedUrl = reconstructUrl(item);
         const type = item.type || getMediaTypeFromUrl(fixedUrl);
@@ -830,6 +835,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const lightboxContent = document.getElementById('lightbox-content');
     if (type.startsWith('image/')) {
+      // CORREÇÃO TAMBÉM NO LIGHTBOX: referrerpolicy
       lightboxContent.innerHTML = `<img src="${media.url}" alt="Imagem" class="max-w-full max-h-full object-contain" referrerpolicy="no-referrer">`;
     } else {
       lightboxContent.innerHTML = `<video src="${media.url}" controls class="max-w-full max-h-full"></video>`;
@@ -1014,6 +1020,7 @@ document.addEventListener('DOMContentLoaded', () => {
     osModal.classList.add('hidden');
   });
 
+  // UPLOAD HÍBRIDO NO SUBMIT
   logForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const submitBtn = e.target.querySelector('button[type="submit"]');
@@ -1028,6 +1035,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (filesToUpload && filesToUpload.length > 0) {
             submitBtn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> Processando mídia...`;
             
+            // Lógica de Upload Híbrida
             const mediaPromises = filesToUpload.map(file => processUpload(file, db).then(result => ({
                 type: file.type,
                 url: result.url,
@@ -1233,18 +1241,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // TELA DO GESTOR COM ESTATÍSTICAS
   adminBtn.addEventListener('click', () => {
     cloudinaryForm.reset();
     adminModal.classList.remove('hidden');
     adminModal.classList.add('flex');
     
+    // --- LÓGICA DO CONTADOR PARA O GESTOR (Nova visão Cloudinary + Firebase Antigo) ---
     const statsContainer = document.getElementById('activeCloudinaryInfo');
     statsContainer.innerHTML = '<p>Carregando estatísticas...</p>';
 
+    // 1. Pega uso do Firebase
     db.ref('firebaseStorageUsage').once('value').then(snap => {
         const fbBytes = snap.val() || 0;
 
+        // 2. Calcula uso total do Cloudinary (Soma de todas as contas)
         let cloudBytes = 0;
         Object.values(allCloudinaryConfigs).forEach(conf => {
             if (conf.usage) cloudBytes += conf.usage;
@@ -1253,15 +1263,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const limit22GB = 22 * 1024 * 1024 * 1024;
         const limitClass = cloudBytes >= limit22GB ? 'text-red-600 font-bold' : '';
 
+        // 3. Monta o HTML
         let html = `<div class="space-y-2 text-sm text-gray-700">`;
-        html += `<div class="flex justify-between border-b pb-1"><span><strong>Firebase (Antigo):</strong></span> <span>${formatBytes(fbBytes)}</span></div>`;
-        html += `<div class="flex justify-between border-b pb-1"><span><strong>Cloudinary Total (Atual):</strong></span> <span class="${limitClass}">${formatBytes(cloudBytes)} / 22 GB</span></div>`;
+        html += `<div class="flex justify-between border-b pb-1"><span><strong>Firebase (Arquivos Antigos):</strong></span> <span>${formatBytes(fbBytes)}</span></div>`;
+        html += `<div class="flex justify-between border-b pb-1"><span><strong>Cloudinary Total (Fotos e Vídeos):</strong></span> <span class="${limitClass}">${formatBytes(cloudBytes)} / 22 GB</span></div>`;
         
         if (activeCloudinaryConfig) {
             const activeUsage = activeCloudinaryConfig.usage || 0;
-             html += `<div class="mt-2 text-xs text-gray-500 bg-gray-50 p-2 rounded border ${cloudBytes >= limit22GB ? 'border-red-400 bg-red-50' : 'border-gray-200'}">
-                <p><strong>Conta Cloudinary Atual:</strong> ${activeCloudinaryConfig.cloudName}</p>
-                <p><strong>Uso somente desta conta:</strong> ${formatBytes(activeUsage)}</p>
+             html += `<div class="mt-2 text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                <p><strong>Conta Ativa:</strong> ${activeCloudinaryConfig.cloudName}</p>
+                <p><strong>Uso desta conta:</strong> ${formatBytes(activeUsage)}</p>
              </div>`;
         }
         html += `</div>`;
@@ -1292,13 +1303,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Listener unificado para edições e exportação no modal de detalhes
   detailsModal.addEventListener('click', (e) => {
+    // Ação de Exportar OS
     const exportBtn = e.target.closest('#exportOsBtn');
     if (exportBtn) {
         exportOsToPrint(document.getElementById('logOsId').value);
         return;
     }
 
+    // Ação de Editar Campos
     const editBtn = e.target.closest('.edit-btn');
     if (editBtn) {
         const field = editBtn.dataset.field;
@@ -1442,6 +1456,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
   });
   
+  // FUNCIONALIDADE DA VERSÃO IA: Listener para o Botão AR
   if (arBtn) {
       arBtn.addEventListener('click', () => {
           window.location.href = 'consultor.html';
