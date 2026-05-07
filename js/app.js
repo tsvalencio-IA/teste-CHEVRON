@@ -641,7 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    const canEdit = currentUser && currentUser.name === 'Thiago Ventura Valencio';
+    const canEdit = currentUser && currentUser.name === 'Thiago Ventura Valencio', 'William Barbosa';   
     const editIconHTML = `<i class='bx bxs-edit-alt text-gray-400 hover:text-blue-600 cursor-pointer ml-2 text-lg'></i>`;
 
     const renderHeader = (currentOs) => {
