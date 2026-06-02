@@ -221,22 +221,9 @@ const uploadToCloudinary = async (file) => {
 };
 
 const uploadToFirebase = async (file) => {
-    const compressedFile = await compressImage(file);
-    const date = new Date();
-    const folder = `imagens/${date.getFullYear()}/${date.getMonth() + 1}`;
-    const cleanName = compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
-    const fileName = `${Date.now()}_${cleanName}`;
-    
-    const storageRef = firebase.storage().ref().child(`${folder}/${fileName}`);
-    const snapshot = await storageRef.put(compressedFile);
-    const downloadURL = await snapshot.ref.getDownloadURL();
-    
-    return {
-        url: downloadURL,
-        bytes: snapshot.totalBytes,
-        storageType: 'firebase',
-        name: file.name
-    };
+    // DESATIVADO: não salvar mais imagens/arquivos no Firebase Storage.
+    // O fluxo oficial continua sendo o processUpload(), enviando para Cloudinary exatamente como já estava.
+    throw new Error('Upload para Firebase Storage desativado. Use Cloudinary.');
 };
 
 const processUpload = async (file, db) => {
@@ -282,14 +269,15 @@ document.addEventListener('DOMContentLoaded', () => {
     { name: 'Wilson', role: 'Gestor', password: 'wilson' },
     { name: 'Rosely', role: 'Gestor', password: 'rose' },
     { name: 'William Barbosa', role: 'Atendente', password: '2312' },
+    { name: 'Bruno', role: 'Atendente', password: 'bruno' },
     { name: 'Thiago Ventura Valencio', role: 'Atendente', password: '1940' },
     { name: 'Fernando', role: 'Mecânico', password: 'fernando' },
-    { name: 'Gustavo', role: 'Mecânico', password: 'gustavo' },
+    { name: 'Gustavo', role: 'Atendente', password: 'gustavo' },
     { name: 'Alberto', role: 'Mecânico', password: '1979' },
     { name: 'Matheus', role: 'Mecânico', password: 'matheus' }
   ];
 
-  const USERS_CAN_DELETE_MEDIA = ['Thiago Ventura Valencio', 'William Barbosa', 'Augusto', 'Wilson', 'Rosely'];
+  const USERS_CAN_DELETE_MEDIA = ['Thiago Ventura Valencio', 'William Barbosa', 'Gustavo', 'Augusto', 'Wilson', 'Rosely'];
   const STATUS_LIST = [ 'Aguardando-Mecanico', 'Em-Analise', 'Orcamento-Enviado', 'Aguardando-Aprovacao', 'Servico-Autorizado', 'Em-Execucao', 'Finalizado-Aguardando-Retirada', 'Entregue' ];
   const ATTENTION_STATUSES = { 'Aguardando-Mecanico': { label: 'AGUARDANDO MECÂNICO', color: 'yellow', blinkClass: 'blinking-aguardando' }, 'Servico-Autorizado': { label: 'SERVIÇO AUTORIZADO', color: 'green', blinkClass: 'blinking-autorizado' } };
   const LED_TRIGGER_STATUSES = ['Aguardando-Mecanico', 'Servico-Autorizado'];
@@ -385,9 +373,7 @@ document.addEventListener('DOMContentLoaded', () => {
     listenToCloudinaryConfigs(); 
     scheduleDailyLogout();
 
-    if (arBtn) arBtn.classList.remove('hidden');
-
-    if (user.name === 'Thiago Ventura Valencio') {
+    if (['Thiago Ventura Valencio', 'Gustavo'].includes(user.name)) {
       adminBtn.classList.remove('hidden');
       reportsBtn.classList.remove('hidden');
     }
@@ -641,7 +627,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    const canEdit = currentUser && currentUser.name === 'Thiago Ventura Valencio';
+    const canEdit = currentUser && ['Thiago Ventura Valencio', 'William Barbosa', 'Gustavo'].includes(currentUser.name);
     const editIconHTML = `<i class='bx bxs-edit-alt text-gray-400 hover:text-blue-600 cursor-pointer ml-2 text-lg'></i>`;
 
     const renderHeader = (currentOs) => {
@@ -1455,13 +1441,6 @@ document.addEventListener('DOMContentLoaded', () => {
           exportOsToPrint(osId);
       }
   });
-  
-  // FUNCIONALIDADE DA VERSÃO IA: Listener para o Botão AR
-  if (arBtn) {
-      arBtn.addEventListener('click', () => {
-          window.location.href = 'consultor.html';
-      });
-  }
 
   // --- INICIALIZAÇÃO DO LOGIN ---
   initializeLoginScreen();
