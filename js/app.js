@@ -271,6 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { name: 'Bruno', role: 'Atendente', password: 'bruno' },
     { name: 'Thiago Ventura Valencio', role: 'Atendente', password: '194000' },
     { name: 'Fernando', role: 'Mecânico', password: 'fernando' },
+    { name: 'jhow', role: 'Mecânico', password: 'jhow' },
     { name: 'Gustavo', role: 'Atendente', password: 'gustavo' },
     { name: 'Matheus', role: 'Mecânico', password: 'matheus' }
   ];
